@@ -46,7 +46,8 @@ src/
 ├── index.css
 └── main.jsx
 .github/workflows/
-└── ci.yml             # lint → test → build
+├── ci.yml             # lint → test → build
+└── release.yml        # tag v* → release en GitHub → deploy a Vercel
 ```
 
 ## Variables de entorno
@@ -84,3 +85,19 @@ feat/x ──PR──► dev ──► release/vX.Y.Z ──PR──► main ─
   también se hacen en `dev` y se publican con una release nueva.
 
 Los commits usan prefijos convencionales: `feat:`, `fix:`, `chore:`, `docs:`, `ci:`, `test:`.
+
+## Publicar una versión
+
+El deploy a producción (Vercel) se hace creando un tag desde `main` actualizado:
+
+```bash
+git switch main
+git pull
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+El workflow `release.yml` crea el release en GitHub con notas autogeneradas y luego construye y
+despliega en Vercel con la CLI, usando los secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID` y
+`VERCEL_PROJECT_ID`. Los push a `main` **no** despliegan solos (`vercel.json` desactiva el
+auto-deploy de Git). Usar versionado semántico (`vMAYOR.MENOR.PARCHE`).
