@@ -141,3 +141,18 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Vite / Vercel
+dist-ssr
+*.local
+.vercel
+
+# Editores
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+
+# Documentación personal (no se sube al repo)
+*.md
+!README.md
