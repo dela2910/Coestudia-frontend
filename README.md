@@ -58,7 +58,29 @@ src/
 Las variables `VITE_*` se incrustan en el build: si cambian, hay que volver a construir y desplegar.
 Nunca pongas secretos en ellas, porque quedan visibles en el navegador.
 
-## Flujo de trabajo
+## Flujo de ramas
 
-Todo cambio entra por pull request a `main`, desde ramas `feat/...`, `fix/...`, `chore/...`.
+```
+feat/x ──PR──► dev ──► release/vX.Y.Z ──PR──► main ──► tag vX.Y.Z (deploy)
+```
+
+- `main`: producción. Solo recibe PRs desde ramas `release/*`. Protegida (PR + CI en verde).
+- `dev`: integración. Todo el trabajo diario entra aquí por PR desde ramas `feat/...`, `fix/...`,
+  `chore/...`.
+- `dev` contiene documentación personal (`CLAUDE*.md`) que **no** debe llegar a `main`. Para
+  publicar:
+
+  ```bash
+  git switch dev && git pull
+  git switch -c release/vX.Y.Z
+  git rm CLAUDE*.md
+  git commit -m "chore: preparar release vX.Y.Z"
+  git push -u origin release/vX.Y.Z
+  gh pr create --base main
+  ```
+
+  El CI hace fallar cualquier PR a `main` que traiga un `CLAUDE*.md`.
+- **Nunca mergear `main` hacia `dev`**: borraría el CLAUDE.md de `dev`. Los arreglos urgentes
+  también se hacen en `dev` y se publican con una release nueva.
+
 Los commits usan prefijos convencionales: `feat:`, `fix:`, `chore:`, `docs:`, `ci:`, `test:`.
