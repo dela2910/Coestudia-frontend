@@ -40,8 +40,30 @@ jobs:
       - name: Traer configuración de producción
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      # Vercel no entrega variables marcadas como "Sensitive" en `vercel pull` (escribe "[SENSITIVE]").
+      # Por eso la URL del backend se toma de la variable de repositorio de GitHub.
+      - name: Usar VITE_API_URL del repositorio
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if [ -z "$VITE_API_URL" ]; then
+            echo "::error::Falta la variable de repositorio VITE_API_URL"
+            exit 1
+          fi
+          sed -i '/^VITE_API_URL=/d' .vercel/.env.production.local
+          echo "VITE_API_URL=$VITE_API_URL" >> .vercel/.env.production.local
+
       - name: Build
         run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Verificar URL del backend en el build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          if ! grep -rq "$VITE_API_URL" .vercel/output/static/assets; then
+            echo "::error::El build no contiene $VITE_API_URL; no se despliega"
+            exit 1
+          fi
 
       - name: Deploy a producción
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"

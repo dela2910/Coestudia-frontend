@@ -32,6 +32,11 @@ Decisiones que difieren de la especificación original:
 4. **PR sin aprobaciones obligatorias**: 0 required approvals; cada uno puede mergear su PR con el
    CI en verde (igual que el backend).
 
+Lección del primer deploy (v0.1.0): Vercel marcó `VITE_API_URL` como *Sensitive* y `vercel pull`
+la descargó como `[SENSITIVE]`, dejando producción sin URL del backend. Desde v0.1.1 el
+`release.yml` toma `VITE_API_URL` de la **variable de repositorio de GitHub** (`vars.VITE_API_URL`),
+la escribe tras el `vercel pull`, y verifica que la URL esté en el build antes de desplegar.
+
 ## Objetivo: Entrega 2 — Walking Skeleton (frontend)
 
 Lo que pide la pauta del curso:
