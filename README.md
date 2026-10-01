@@ -99,5 +99,7 @@ git push origin v0.1.0
 
 El workflow `release.yml` crea el release en GitHub con notas autogeneradas y luego construye y
 despliega en Vercel con la CLI, usando los secrets `VERCEL_TOKEN`, `VERCEL_ORG_ID` y
-`VERCEL_PROJECT_ID`. Los push a `main` **no** despliegan solos (`vercel.json` desactiva el
+`VERCEL_PROJECT_ID`. La URL del backend se toma de la variable de repositorio `VITE_API_URL`
+(*Settings → Secrets and variables → Actions → Variables*), y el deploy se cancela si no queda en
+el build. Los push a `main` **no** despliegan solos (`vercel.json` desactiva el
 auto-deploy de Git). Usar versionado semántico (`vMAYOR.MENOR.PARCHE`).
