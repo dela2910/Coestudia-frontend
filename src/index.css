@@ -1,10 +1,70 @@
+/* Paleta Coestudia: blanco + escala de celestes */
+:root {
+  --sky-25: #f7fcff;
+  --sky-50: #eff8ff;
+  --sky-100: #dff1fd;
+  --sky-200: #bfe4fb;
+  --sky-300: #8fd0f7;
+  --sky-400: #50b5ee;
+  --sky-500: #2499dc;
+  --sky-600: #157cbb;
+  --sky-700: #136397;
+  --sky-800: #154f78;
+  --ink: #12304a;
+  --ink-soft: #4b6478;
+  --ink-faint: #7d93a5;
+  --white: #ffffff;
+  --border: #dbeaf5;
+  --success-bg: #e3f7ee;
+  --success: #1c7a52;
+  --danger-bg: #fdecec;
+  --danger: #b4403f;
+
+  --radius-sm: 10px;
+  --radius: 16px;
+  --radius-lg: 24px;
+  --shadow-sm: 0 1px 2px rgb(18 48 74 / 0.05);
+  --shadow: 0 4px 16px -4px rgb(21 124 187 / 0.12), 0 1px 3px rgb(18 48 74 / 0.05);
+  --shadow-lg: 0 18px 40px -12px rgb(21 124 187 / 0.22);
+
+  font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  background: #f9fafb;
-  color: #111827;
+  background: var(--sky-25);
+  color: var(--ink);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 3px solid var(--sky-300);
+  outline-offset: 2px;
 }
