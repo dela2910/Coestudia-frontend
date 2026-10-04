@@ -98,6 +98,42 @@ const PATHS = {
     </>
   ),
   minus: <path d="M5 12h14" />,
+  upload: (
+    <>
+      <path d="M12 15V4M7 9l5-5 5 5" />
+      <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v11M7 10l5 5 5-5" />
+      <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z" />
+      <path d="M14 3v5h5M9 13h6M9 17h4" />
+    </>
+  ),
+  paperclip: (
+    <path d="m20 11.5-8.1 8.1a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8" />
+  ),
+  send: (
+    <>
+      <path d="M21 3 10 14" />
+      <path d="M21 3 14.5 21l-4.5-7-7-4.5L21 3Z" />
+    </>
+  ),
+  chat: (
+    <path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1Z" />
+  ),
+  trash: (
+    <>
+      <path d="M4 7h16M10 11v6M14 11v6" />
+      <path d="M6 7l1 13h10l1-13M9 7V4h6v3" />
+    </>
+  ),
 };
 
 export default function Icon({ name, size = 20, className = "", strokeWidth = 1.8 }) {

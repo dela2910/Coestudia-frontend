@@ -3,7 +3,7 @@ import Icon from "../components/Icon";
 import { Avatar, BackButton, CapacityBar, StatusBadge } from "../components/ui";
 import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
 
-export default function GroupDetail({ group, onBack }) {
+export default function GroupDetail({ group, isMember = false, onEnter, onBack }) {
   const [requested, setRequested] = useState(false);
   const full = group.members >= group.capacity;
   const freeSpots = group.capacity - group.members;
@@ -75,7 +75,11 @@ export default function GroupDetail({ group, onBack }) {
         </section>
 
         <div className="detail-actions">
-          {full ? (
+          {isMember ? (
+            <button type="button" className="btn btn-primary btn-lg btn-block" onClick={onEnter}>
+              <Icon name="chat" size={18} /> Abrir grupo
+            </button>
+          ) : full ? (
             <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
               Grupo completo
             </button>
@@ -98,10 +102,17 @@ export default function GroupDetail({ group, onBack }) {
               Solicitar ingreso
             </button>
           )}
-          <p className="notice">
-            <Icon name="lock" size={16} />
-            El lugar exacto y el contacto de los integrantes se muestran solo cuando te aceptan.
-          </p>
+          {isMember ? (
+            <p className="notice">
+              <Icon name="users" size={16} />
+              Ya eres integrante: dentro del grupo puedes compartir archivos y consultarlos con el asistente de estudio.
+            </p>
+          ) : (
+            <p className="notice">
+              <Icon name="lock" size={16} />
+              El lugar exacto y el contacto de los integrantes se muestran solo cuando te aceptan.
+            </p>
+          )}
         </div>
       </article>
     </div>

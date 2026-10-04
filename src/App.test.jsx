@@ -8,6 +8,7 @@ const login = () => {
   render(<App />);
   // El primero es la pestaña; el último es el botón de envío del formulario.
   fireEvent.click(screen.getAllByRole("button", { name: "Iniciar sesión" }).at(-1));
+  fireEvent.click(screen.getByRole("button", { name: "Ya verifiqué mi correo" }));
 };
 
 const mockFetchOk = () =>
@@ -47,11 +48,21 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
-  it("muestra el inicio de sesión y entra al buscador", () => {
+  it("muestra el inicio de sesión, pide verificar el correo y entra al buscador", () => {
     render(<App />);
     expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
 
+    fireEvent.change(screen.getByPlaceholderText("nombre@uc.cl"), {
+      target: { value: "camila@uc.cl" },
+    });
     fireEvent.click(screen.getAllByRole("button", { name: "Iniciar sesión" }).at(-1));
+
+    expect(screen.getByRole("heading", { name: "Verifica tu correo" })).toBeInTheDocument();
+    expect(screen.getByText("camila@uc.cl")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reenviar correo" }));
+    expect(screen.getByText(/Te reenviamos el correo/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ya verifiqué mi correo" }));
 
     expect(screen.getByRole("heading", { name: /Hola, Benjamín/ })).toBeInTheDocument();
   });
@@ -60,12 +71,13 @@ describe("App", () => {
     login();
 
     const input = screen.getByLabelText("Buscar asignatura");
-    fireEvent.change(input, { target: { value: "calculo" } });
+    // Física I: el usuario aún no es integrante de ese grupo.
+    fireEvent.change(input, { target: { value: "fisica" } });
     fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
 
-    expect(screen.getByText("Encontramos 3 grupos")).toBeInTheDocument();
+    expect(screen.getByText("Encontramos 1 grupo")).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Física I/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Solicitar ingreso" }));
 
     expect(screen.getByText(/Solicitud enviada/)).toBeInTheDocument();
@@ -80,6 +92,49 @@ describe("App", () => {
 
     expect(screen.getByText("Aceptado")).toBeInTheDocument();
     expect(screen.getByText("1 solicitud pendiente")).toBeInTheDocument();
+  });
+});
+
+describe("Espacio del grupo", () => {
+  beforeEach(mockFetchOk);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const openRoom = () => {
+    login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II.*Abrir grupo/ })[0]);
+  };
+
+  it("muestra el asistente y los archivos del grupo", () => {
+    openRoom();
+
+    expect(screen.getByText("Espacio del grupo")).toBeInTheDocument();
+    expect(screen.getByText(/Soy el asistente de estudio de Cálculo II/)).toBeInTheDocument();
+    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
+    expect(within(files).getByText("Guía integrales múltiples.pdf")).toBeInTheDocument();
+  });
+
+  it("responde preguntas usando los archivos y permite subir más", async () => {
+    openRoom();
+
+    fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
+      target: { value: "Resume los archivos" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
+    expect(await screen.findByText(/Aquí va un resumen de los 2 archivos/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(screen.getByText("Fuentes:")).toBeInTheDocument();
+
+    const file = new File(["apuntes"], "Apuntes clase 5.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
+
+    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
+    expect(within(files).getByText("Apuntes clase 5.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/leí "Apuntes clase 5.pdf"/)).toBeInTheDocument();
+    expect(screen.getByText("Usando 3 archivos")).toBeInTheDocument();
   });
 });
 

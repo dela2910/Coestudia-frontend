@@ -1,19 +1,23 @@
 import { useState } from "react";
 import Navbar from "./components/Navbar";
-import { currentUser, groups, myGroups } from "./data/mock";
+import { currentUser, groupFiles, groups, myGroups } from "./data/mock";
 import CreateGroup from "./views/CreateGroup";
 import GroupDetail from "./views/GroupDetail";
+import GroupRoom from "./views/GroupRoom";
 import Home from "./views/Home";
 import Login from "./views/Login";
 import Profile from "./views/Profile";
 import Results from "./views/Results";
+import VerifyEmail from "./views/VerifyEmail";
 import "./App.css";
 
 const EMPTY_FILTERS = { query: "", modality: null, days: [], blocks: [] };
 
 function App() {
-  const [loggedIn, setLoggedIn] = useState(false);
-  // view: "home" | "results" | "create" | "detail" | "profile"
+  // authStep: "login" | "verify" (verificar correo) | "done"
+  const [authStep, setAuthStep] = useState("login");
+  const [email, setEmail] = useState("");
+  // view: "home" | "results" | "create" | "detail" | "room" | "profile"
   const [view, setView] = useState("home");
   const [previousView, setPreviousView] = useState("home");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -30,13 +34,35 @@ function App() {
     navigate("detail");
   };
 
-  if (!loggedIn) {
+  // Espacio interno del grupo (asistente y archivos), solo para integrantes.
+  const openRoom = (id) => {
+    setSelectedGroupId(id);
+    navigate("room");
+  };
+
+  const isMember = (id) =>
+    myGroups.participating.includes(id) || myGroups.created.some((c) => c.groupId === id);
+
+  if (authStep === "login") {
     return (
       <Login
-        onLogin={() => {
-          setLoggedIn(true);
+        onLogin={(typedEmail) => {
+          setEmail(typedEmail || currentUser.email);
+          setAuthStep("verify");
+        }}
+      />
+    );
+  }
+
+  if (authStep === "verify") {
+    return (
+      <VerifyEmail
+        email={email}
+        onVerified={() => {
+          setAuthStep("done");
           setView("home");
         }}
+        onChangeEmail={() => setAuthStep("login")}
       />
     );
   }
@@ -69,16 +95,30 @@ function App() {
         )}
         {view === "create" && <CreateGroup user={currentUser} onDone={() => navigate("profile")} />}
         {view === "detail" && selectedGroup && (
-          <GroupDetail group={selectedGroup} onBack={() => navigate(previousView)} />
+          <GroupDetail
+            group={selectedGroup}
+            isMember={isMember(selectedGroup.id)}
+            onEnter={() => openRoom(selectedGroup.id)}
+            onBack={() => navigate(previousView)}
+          />
+        )}
+        {view === "room" && selectedGroup && (
+          <GroupRoom
+            key={selectedGroup.id}
+            group={selectedGroup}
+            user={currentUser}
+            initialFiles={groupFiles[selectedGroup.id]}
+            onBack={() => navigate("profile")}
+          />
         )}
         {view === "profile" && (
           <Profile
             user={currentUser}
             groups={groups}
             myGroups={myGroups}
-            onOpen={openGroup}
+            onOpen={openRoom}
             onCreate={() => navigate("create")}
-            onLogout={() => setLoggedIn(false)}
+            onLogout={() => setAuthStep("login")}
           />
         )}
       </main>

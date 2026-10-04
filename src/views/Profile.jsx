@@ -109,6 +109,7 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
                   key={groupId}
                   group={group}
                   onOpen={onOpen}
+                  ctaLabel="Abrir grupo"
                   footer={
                     <div className="requests">
                       <div className="requests-head">
@@ -167,7 +168,7 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
           (myGroups.participating.length > 0 ? (
             <div className="group-grid">
               {myGroups.participating.map((id) => (
-                <GroupCard key={id} group={findGroup(id)} onOpen={onOpen} />
+                <GroupCard key={id} group={findGroup(id)} onOpen={onOpen} ctaLabel="Abrir grupo" />
               ))}
             </div>
           ) : (
