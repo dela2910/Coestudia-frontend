@@ -2,7 +2,7 @@ import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
 import Icon from "./Icon";
 import { CapacityBar, StatusBadge } from "./ui";
 
-export default function GroupCard({ group, onOpen, footer }) {
+export default function GroupCard({ group, onOpen, footer, ctaLabel = "Ver detalle" }) {
   const full = group.members >= group.capacity;
   return (
     <article className={`group-card ${full ? "group-card-full" : ""}`}>
@@ -23,7 +23,7 @@ export default function GroupCard({ group, onOpen, footer }) {
         </div>
         <CapacityBar members={group.members} capacity={group.capacity} />
         <span className="group-card-cta">
-          Ver detalle <Icon name="chevronRight" size={16} />
+          {ctaLabel} <Icon name="chevronRight" size={16} />
         </span>
       </button>
       {footer}

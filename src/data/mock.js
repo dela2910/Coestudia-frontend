@@ -126,6 +126,16 @@ export const myGroups = {
   participating: [1, 2],
 };
 
+// Archivos compartidos dentro de cada grupo (clave: id del grupo)
+export const groupFiles = {
+  1: [
+    { id: 1, name: "Guía integrales múltiples.pdf", size: 1_240_000, uploadedBy: "Ana", date: "28 sep" },
+    { id: 2, name: "Resumen series.docx", size: 356_000, uploadedBy: "Sofía", date: "30 sep" },
+  ],
+  2: [{ id: 3, name: "Control 2 - 2025.pdf", size: 820_000, uploadedBy: "Matías", date: "29 sep" }],
+  5: [{ id: 4, name: "Ejercicios determinantes.pdf", size: 540_000, uploadedBy: "Benjamín", date: "1 oct" }],
+};
+
 export const dayLabel = (id) => DAYS.find((d) => d.id === id)?.label ?? id;
 export const blockLabel = (id) => BLOCKS.find((b) => b.id === id)?.label ?? id;
 export const modalityLabel = (id) => MODALITIES.find((m) => m.id === id)?.label ?? id;
