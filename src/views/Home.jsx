@@ -1,7 +1,8 @@
 import { useState } from "react";
 import Icon from "../components/Icon";
 import { ToggleGroup } from "../components/ui";
-import { BLOCKS, DAYS, MODALITIES } from "../data/mock";
+import { BLOCKS, DAYS, MODALITIES, subjects } from "../data/mock";
+import { findSubject } from "../data/subjects";
 
 export default function Home({ user, initialFilters, onSearch, onCreate }) {
   const [query, setQuery] = useState(initialFilters.query);
@@ -39,7 +40,7 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
           <Icon name="search" size={22} />
           <input
             type="search"
-            placeholder="Buscar asignatura… (ej: Cálculo II)"
+            placeholder="Buscar por ramo o sigla… (ej: Cálculo II, MAT1620)"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Buscar asignatura"
@@ -86,20 +87,23 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
         <h2 className="section-title">Tus ramos</h2>
         <p className="muted small">Toca uno para ver sus grupos al tiro.</p>
         <div className="subject-grid">
-          {user.subjects.map((subject) => (
+          {user.subjects.map((code) => (
             <button
-              key={subject}
+              key={code}
               type="button"
               className="subject-tile"
               onClick={() => {
-                setQuery(subject);
-                search(subject);
+                setQuery(code);
+                search(code);
               }}
             >
               <span className="subject-icon">
                 <Icon name="book" size={18} />
               </span>
-              <span>{subject}</span>
+              <span className="subject-tile-text">
+                <span>{findSubject(subjects, code)?.name ?? code}</span>
+                <span className="subject-code">{code}</span>
+              </span>
               <Icon name="chevronRight" size={18} className="subject-arrow" />
             </button>
           ))}

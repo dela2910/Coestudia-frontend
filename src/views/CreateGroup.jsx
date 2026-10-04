@@ -1,22 +1,45 @@
 import { useState } from "react";
 import Icon from "../components/Icon";
 import { CapacityBar, EmptyState, ToggleGroup } from "../components/ui";
-import { BLOCKS, DAYS, MODALITIES, blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import {
+  BLOCKS,
+  DAYS,
+  MODALITIES,
+  blockLabel,
+  dayLabel,
+  modalityLabel,
+  subjects,
+} from "../data/mock";
+import { findSubject, normalizeCode, subjectLabel } from "../data/subjects";
 
 const MAX_DESCRIPTION = 280;
 const MIN_CAPACITY = 2;
 const MAX_CAPACITY = 10;
 
 export default function CreateGroup({ user, onDone }) {
-  const [subject, setSubject] = useState("");
+  const [code, setCode] = useState("");
+  const [newName, setNewName] = useState("");
   const [description, setDescription] = useState("");
   const [modality, setModality] = useState("presencial");
+  const [place, setPlace] = useState("");
+  const [link, setLink] = useState("");
   const [days, setDays] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [capacity, setCapacity] = useState(4);
   const [published, setPublished] = useState(false);
 
-  const canPublish = subject.trim() && days.length > 0 && blocks.length > 0;
+  // "Buscar o crear": si la sigla ya existe se usa esa asignatura; si no, se pide su nombre
+  // y el backend la crea al publicar el grupo.
+  const existing = code.trim() ? findSubject(subjects, code) : null;
+  const subjectName = existing ? existing.name : newName.trim();
+  const isOnline = modality === "online";
+  const meetingPoint = isOnline ? link.trim() : place.trim();
+  const canPublish =
+    code.trim() && subjectName && meetingPoint && days.length > 0 && blocks.length > 0;
+  // Los ramos del usuario aparecen primero en el autocompletado.
+  const options = [...subjects].sort(
+    (a, b) => user.subjects.includes(b.code) - user.subjects.includes(a.code),
+  );
 
   if (published) {
     return (
@@ -30,7 +53,7 @@ export default function CreateGroup({ user, onDone }) {
             </button>
           }
         >
-          Tu grupo de {subject} ya está visible. Te avisaremos cuando alguien quiera unirse.
+          Tu grupo de {subjectName} ya está visible. Te avisaremos cuando alguien quiera unirse.
         </EmptyState>
       </div>
     );
@@ -58,22 +81,46 @@ export default function CreateGroup({ user, onDone }) {
               <span className="step">1</span> ¿Qué van a estudiar?
             </legend>
             <label className="field">
-              <span className="field-label">Asignatura</span>
+              <span className="field-label">Sigla de la asignatura</span>
               <div className="input-wrap">
                 <Icon name="book" size={18} />
                 <input
-                  list="my-subjects"
-                  placeholder="Ej: Cálculo II"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
+                  list="subject-codes"
+                  placeholder="Ej: MAT1620"
+                  autoCapitalize="characters"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
                 />
-                <datalist id="my-subjects">
-                  {user.subjects.map((s) => (
-                    <option key={s} value={s} />
+                <datalist id="subject-codes">
+                  {options.map((s) => (
+                    <option key={s.code} value={s.code}>
+                      {s.name}
+                    </option>
                   ))}
                 </datalist>
               </div>
+              {existing && (
+                <span className="field-note">
+                  <Icon name="check" size={14} strokeWidth={2.4} /> {existing.name}
+                </span>
+              )}
             </label>
+            {code.trim() && !existing && (
+              <label className="field">
+                <span className="field-label">Nombre del ramo</span>
+                <div className="input-wrap">
+                  <Icon name="book" size={18} />
+                  <input
+                    placeholder="Ej: Cálculo II"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                  />
+                </div>
+                <span className="field-hint">
+                  {normalizeCode(code)} aún no está en Coestudia: se agregará con este nombre.
+                </span>
+              </label>
+            )}
             <label className="field">
               <span className="field-label">
                 Descripción <span className="optional">(opcional)</span>
@@ -112,6 +159,34 @@ export default function CreateGroup({ user, onDone }) {
                 ))}
               </div>
             </div>
+            {isOnline ? (
+              <label className="field">
+                <span className="field-label">Enlace de la reunión</span>
+                <div className="input-wrap">
+                  <Icon name="monitor" size={18} />
+                  <input
+                    type="url"
+                    placeholder="Ej: https://meet.google.com/abc-defg-hij"
+                    value={link}
+                    onChange={(e) => setLink(e.target.value)}
+                  />
+                </div>
+                <span className="field-hint">Solo lo verán los integrantes aceptados.</span>
+              </label>
+            ) : (
+              <label className="field">
+                <span className="field-label">Lugar</span>
+                <div className="input-wrap">
+                  <Icon name="mapPin" size={18} />
+                  <input
+                    placeholder="Ej: Biblioteca central, sala 2"
+                    value={place}
+                    onChange={(e) => setPlace(e.target.value)}
+                  />
+                </div>
+                <span className="field-hint">Solo lo verán los integrantes aceptados.</span>
+              </label>
+            )}
             <div className="field">
               <span className="field-label">Días</span>
               <ToggleGroup label="Días" options={DAYS} value={days} onChange={setDays} multiple />
@@ -163,7 +238,8 @@ export default function CreateGroup({ user, onDone }) {
           </button>
           {!canPublish && (
             <p className="field-hint center">
-              Completa la asignatura y elige al menos un día y un bloque.
+              Completa la asignatura, el {isOnline ? "enlace" : "lugar"} y elige al menos un día y
+              un bloque.
             </p>
           )}
         </form>
@@ -173,7 +249,11 @@ export default function CreateGroup({ user, onDone }) {
           <div className="group-card preview-card">
             <div className="group-card-main">
               <div className="group-card-head">
-                <h3>{subject.trim() || "Tu asignatura"}</h3>
+                <h3>
+                  {subjectName
+                    ? subjectLabel({ code: normalizeCode(code), name: subjectName })
+                    : "Tu asignatura"}
+                </h3>
                 <span className="badge badge-open">Abierto</span>
               </div>
               <div className="meta">

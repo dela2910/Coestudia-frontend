@@ -95,6 +95,126 @@ describe("App", () => {
   });
 });
 
+describe("Registro", () => {
+  beforeEach(mockFetchOk);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const openRegister = () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Crear cuenta" }));
+  };
+  const submit = () =>
+    fireEvent.click(screen.getAllByRole("button", { name: "Crear cuenta" }).at(-1));
+  const fill = (label, value) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+  it("pide carrera y año de ingreso, y deduce la universidad del correo", () => {
+    openRegister();
+    submit();
+    expect(screen.getByRole("alert")).toHaveTextContent("Completa todos los campos.");
+
+    fill("Nombre completo", "Camila Pérez");
+    fill(/Correo UC/, "camila@uc.cl");
+    fill("Carrera", "Ingeniería Civil");
+    fill("Año de ingreso", "2024");
+    expect(screen.getByText("Pontificia Universidad Católica de Chile")).toBeInTheDocument();
+
+    submit();
+    expect(screen.getByRole("heading", { name: "Verifica tu correo" })).toBeInTheDocument();
+  });
+
+  it("rechaza correos de dominios no habilitados", () => {
+    openRegister();
+    fill("Nombre completo", "Camila Pérez");
+    fill(/Correo UC/, "camila@gmail.com");
+    fill("Carrera", "Ingeniería Civil");
+    fill("Año de ingreso", "2024");
+    submit();
+
+    expect(screen.getByRole("alert")).toHaveTextContent("solo se aceptan correos @uc.cl");
+  });
+});
+
+describe("Crear grupo", () => {
+  beforeEach(mockFetchOk);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const openCreate = () => {
+    login();
+    fireEvent.click(screen.getAllByRole("button", { name: /Crear grupo/ })[0]);
+  };
+  const publish = () => screen.getByRole("button", { name: "Publicar grupo" });
+
+  it("reconoce una sigla existente y pide el lugar si es presencial", () => {
+    openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "mat 1620" },
+    });
+    expect(screen.getAllByText("Cálculo II").length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText(/Nombre del ramo/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    expect(publish()).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    expect(publish()).toBeEnabled();
+    fireEvent.click(publish());
+    expect(screen.getByText(/Tu grupo de Cálculo II ya está visible/)).toBeInTheDocument();
+  });
+
+  it("pide el nombre del ramo si la sigla es nueva y el enlace si es online", () => {
+    openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "IIC2233" },
+    });
+    fireEvent.change(screen.getByLabelText(/Nombre del ramo/), {
+      target: { value: "Programación Avanzada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Online" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    expect(publish()).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Enlace de la reunión/), {
+      target: { value: "https://meet.google.com/abc" },
+    });
+    expect(screen.getByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
+    expect(publish()).toBeEnabled();
+  });
+});
+
+describe("Perfil", () => {
+  beforeEach(mockFetchOk);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("agrega asignaturas por sigla y crea las que no existen", () => {
+    login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    expect(screen.getByText(/Ingreso 2023/)).toBeInTheDocument();
+    expect(screen.getByText("MAT1620 · Cálculo II")).toBeInTheDocument();
+
+    const code = screen.getByLabelText("Sigla de la asignatura");
+    fireEvent.change(code, { target: { value: "iic2143" } });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+    expect(screen.getByText("IIC2143 · Ingeniería de Software")).toBeInTheDocument();
+
+    fireEvent.change(code, { target: { value: "IIC2233" } });
+    expect(screen.getByRole("button", { name: "Agregar" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Nombre del ramo"), {
+      target: { value: "Programación Avanzada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+    expect(screen.getByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
+  });
+});
+
 describe("Espacio del grupo", () => {
   beforeEach(mockFetchOk);
   afterEach(() => {
@@ -147,5 +267,10 @@ describe("filterGroups", () => {
       blocks: [],
     });
     expect(result.map((g) => g.id)).toEqual([2]);
+  });
+
+  it("también encuentra grupos por sigla", () => {
+    const result = filterGroups(groups, { query: "fis 1513", modality: null, days: [], blocks: [] });
+    expect(result.map((g) => g.id)).toEqual([4]);
   });
 });

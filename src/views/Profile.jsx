@@ -2,11 +2,16 @@ import { useState } from "react";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
 import { Avatar, EmptyState } from "../components/ui";
+import { subjects as allSubjects } from "../data/mock";
+import { findSubject, normalizeCode, subjectLabel } from "../data/subjects";
 
 export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLogout }) {
   const [tab, setTab] = useState("created"); // "created" | "participating"
-  const [subjects, setSubjects] = useState(user.subjects);
-  const [newSubject, setNewSubject] = useState("");
+  // Asignaturas que existen en Coestudia; crece cuando alguien agrega una sigla nueva.
+  const [catalog, setCatalog] = useState(allSubjects);
+  const [subjects, setSubjects] = useState(user.subjects); // siglas
+  const [newCode, setNewCode] = useState("");
+  const [newName, setNewName] = useState("");
   // Estado de cada solicitud: undefined (pendiente) | "accepted" | "rejected"
   const [decisions, setDecisions] = useState({});
 
@@ -15,11 +20,19 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
     .flatMap((c) => c.requests)
     .filter((r) => !decisions[r.id]).length;
 
+  const match = newCode.trim() ? findSubject(catalog, newCode) : null;
+  const needsName = Boolean(newCode.trim()) && !match;
+  const canAdd = Boolean(newCode.trim()) && (match || newName.trim());
+
+  // "Buscar o crear": si la sigla no existe, se crea la asignatura con el nombre escrito.
   const addSubject = (e) => {
     e.preventDefault();
-    const value = newSubject.trim();
-    if (value && !subjects.includes(value)) setSubjects([...subjects, value]);
-    setNewSubject("");
+    if (!canAdd) return;
+    const subject = match ?? { code: normalizeCode(newCode), name: newName.trim() };
+    if (!match) setCatalog([...catalog, subject]);
+    if (!subjects.includes(subject.code)) setSubjects([...subjects, subject.code]);
+    setNewCode("");
+    setNewName("");
   };
 
   const decide = (requestId, decision) =>
@@ -32,7 +45,7 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
         <div className="profile-info">
           <h1>{user.name}</h1>
           <p className="muted">
-            {user.career} · {user.university}
+            {user.career} · Ingreso {user.entryYear} · {user.university}
           </p>
           <p className="muted small meta-item">
             <Icon name="mail" size={16} /> {user.email}
@@ -47,13 +60,13 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
         <h2 className="section-title">Asignaturas del semestre</h2>
         <p className="muted small">Las usamos para sugerirte grupos.</p>
         <div className="chip-row">
-          {subjects.map((s) => (
-            <span key={s} className="chip chip-removable">
-              {s}
+          {subjects.map((code) => (
+            <span key={code} className="chip chip-removable">
+              {subjectLabel(findSubject(catalog, code))}
               <button
                 type="button"
-                aria-label={`Quitar ${s}`}
-                onClick={() => setSubjects(subjects.filter((x) => x !== s))}
+                aria-label={`Quitar ${code}`}
+                onClick={() => setSubjects(subjects.filter((x) => x !== code))}
               >
                 <Icon name="x" size={14} strokeWidth={2.2} />
               </button>
@@ -61,12 +74,30 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
           ))}
           <form className="chip-add" onSubmit={addSubject}>
             <input
-              placeholder="Agregar asignatura"
-              value={newSubject}
-              onChange={(e) => setNewSubject(e.target.value)}
-              aria-label="Agregar asignatura"
+              list="profile-subject-codes"
+              placeholder="Agregar sigla"
+              autoCapitalize="characters"
+              value={newCode}
+              onChange={(e) => setNewCode(e.target.value)}
+              aria-label="Sigla de la asignatura"
             />
-            <button type="submit" aria-label="Agregar" disabled={!newSubject.trim()}>
+            <datalist id="profile-subject-codes">
+              {catalog.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </datalist>
+            {needsName && (
+              <input
+                className="chip-add-name"
+                placeholder="Nombre del ramo"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                aria-label="Nombre del ramo"
+              />
+            )}
+            <button type="submit" aria-label="Agregar" disabled={!canAdd}>
               <Icon name="plus" size={16} strokeWidth={2.2} />
             </button>
           </form>

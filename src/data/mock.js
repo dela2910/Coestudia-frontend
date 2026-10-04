@@ -19,17 +19,29 @@ export const MODALITIES = [
   { id: "online", label: "Online" },
 ];
 
+// Asignaturas que ya existen. En el backend no se cargan de antemano: se crean la primera vez
+// que alguien arma un grupo de ese ramo o lo agrega a su perfil ("buscar o crear" por sigla).
+export const subjects = [
+  { code: "MAT1620", name: "Cálculo II" },
+  { code: "FIS1513", name: "Física I" },
+  { code: "MAT1203", name: "Álgebra" },
+  { code: "IIC2143", name: "Ingeniería de Software" },
+];
+
 export const currentUser = {
   name: "Benjamín Soto",
   email: "benjamin.soto@uc.cl",
   university: "Pontificia Universidad Católica de Chile",
   career: "Ingeniería Civil Informática",
-  subjects: ["Cálculo II", "Física I", "Álgebra"],
+  entryYear: 2023,
+  // Siglas de las asignaturas que cursa (en el backend, tabla USUARIO_ASIGNATURA).
+  subjects: ["MAT1620", "FIS1513", "MAT1203"],
 };
 
 export const groups = [
   {
     id: 1,
+    code: "MAT1620",
     subject: "Cálculo II",
     modality: "presencial",
     day: "M",
@@ -48,6 +60,7 @@ export const groups = [
   },
   {
     id: 2,
+    code: "MAT1620",
     subject: "Cálculo II",
     modality: "online",
     day: "J",
@@ -64,6 +77,7 @@ export const groups = [
   },
   {
     id: 3,
+    code: "MAT1620",
     subject: "Cálculo II",
     modality: "presencial",
     day: "S",
@@ -83,6 +97,7 @@ export const groups = [
   },
   {
     id: 4,
+    code: "FIS1513",
     subject: "Física I",
     modality: "online",
     day: "L",
@@ -96,6 +111,7 @@ export const groups = [
   },
   {
     id: 5,
+    code: "MAT1203",
     subject: "Álgebra",
     modality: "presencial",
     day: "X",
