@@ -6,10 +6,15 @@ const normalize = (text) =>
     .toLowerCase()
     .trim();
 
+// Busca por nombre del ramo o por sigla (ej: "calculo" o "MAT1620").
+const matchesQuery = (group, query) =>
+  normalize(group.subject).includes(normalize(query)) ||
+  normalize(group.code).includes(normalize(query).replace(/\s+/g, ""));
+
 export function filterGroups(groups, { query, modality, days, blocks }) {
   return groups.filter(
     (g) =>
-      normalize(g.subject).includes(normalize(query)) &&
+      matchesQuery(g, query) &&
       (!modality || g.modality === modality) &&
       (days.length === 0 || days.includes(g.day)) &&
       (blocks.length === 0 || blocks.includes(g.block)),
