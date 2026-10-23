@@ -2,8 +2,6 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { getToken, setToken } from "./api/client";
-import { filterGroups } from "./data/filters";
-import { groups } from "./data/mock";
 
 // Usuario tal como lo devuelve el backend (nombres del modelo de datos)
 const apiUser = {
@@ -17,6 +15,34 @@ const apiUser = {
 };
 const session = { access_token: "jwt-de-prueba", token_type: "bearer", usuario: apiUser };
 
+// Grupos tal como los devuelve GET /api/grupos
+const apiGroup = (id, sigla, nombre, fields = {}) => ({
+  id,
+  asignatura: { id, sigla, nombre },
+  descripcion: "Repaso para el certamen.",
+  es_online: false,
+  cupo_maximo: 4,
+  miembros: 2,
+  abierto: true,
+  vigente_hasta: "2026-12-04",
+  horarios: [{ dia_semana: 1, es_manana: false }],
+  ...fields,
+});
+const apiGroups = [
+  apiGroup(11, "MAT1620", "Cálculo II"),
+  apiGroup(12, "FIS1513", "Física I", { es_online: true }),
+  apiGroup(13, "MAT1620", "Cálculo II", { miembros: 2, abierto: false }),
+];
+
+// Búsqueda simulada: filtra por el texto de ?q= (el backend también ignora tildes)
+const searchRoute = (options, url) => {
+  const q = (new URL(url).searchParams.get("q") ?? "").toLowerCase();
+  const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const matches = (g) =>
+    plain(g.asignatura.nombre).includes(plain(q)) || g.asignatura.sigla.toLowerCase().includes(q);
+  return [200, apiGroups.filter(matches)];
+};
+
 const DEFAULT_ROUTES = {
   "GET /api/hello": () => [200, { message: "Hola desde el backend de Coestudia" }],
   "POST /api/auth/login": () => [200, session],
@@ -24,6 +50,7 @@ const DEFAULT_ROUTES = {
   "POST /api/auth/verificar": () => [200, session],
   "POST /api/auth/reenviar-verificacion": () => [202, { message: "ok" }],
   "GET /api/auth/me": () => [200, apiUser],
+  "GET /api/grupos": searchRoute,
 };
 
 // Simula el backend: cada ruta "MÉTODO /ruta" responde [status, json]. Devuelve el mock de fetch.
@@ -31,7 +58,7 @@ const mockApi = (routes = {}) => {
   const handlers = { ...DEFAULT_ROUTES, ...routes };
   const fetchMock = vi.fn((url, options = {}) => {
     const key = `${options.method ?? "GET"} ${new URL(url).pathname}`;
-    const [status, data] = handlers[key]?.(options) ?? [404, { detail: "No existe" }];
+    const [status, data] = handlers[key]?.(options, url) ?? [404, { detail: "No existe" }];
     return Promise.resolve({ ok: status < 300, status, json: () => Promise.resolve(data) });
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -93,7 +120,7 @@ describe("App", () => {
     fireEvent.change(input, { target: { value: "fisica" } });
     fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
 
-    expect(screen.getByText("Encontramos 1 grupo")).toBeInTheDocument();
+    expect(await screen.findByText("Encontramos 1 grupo")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /Física I/ })[0]);
     fireEvent.click(screen.getByRole("button", { name: "Solicitar ingreso" }));
@@ -504,34 +531,86 @@ describe("Espacio del grupo", () => {
   });
 });
 
-describe("filterGroups", () => {
-  it("filtra por ramo sin importar tildes, modalidad y día", () => {
-    const result = filterGroups(groups, {
-      query: "CALCULO",
-      isOnline: true,
-      days: [3],
-      blocks: [],
+describe("Buscador", () => {
+  const searchFor = (text) => {
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+  };
+  const searchUrl = (fetchMock) =>
+    new URL(fetchMock.mock.calls.findLast(([url]) => url.includes("/api/grupos"))[0]);
+
+  it("manda los filtros al backend", async () => {
+    const fetchMock = mockApi();
+    await login();
+
+    fireEvent.click(screen.getByRole("button", { name: "Online" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mié" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    searchFor("  calculo ");
+    await screen.findByText(/Encontramos/);
+
+    const params = searchUrl(fetchMock).searchParams;
+    expect(params.get("q")).toBe("calculo");
+    expect(params.get("es_online")).toBe("true");
+    expect(params.getAll("dia")).toEqual(["0", "2"]);
+    expect(params.getAll("es_manana")).toEqual(["true"]);
+  });
+
+  it("sin filtros no manda parámetros", async () => {
+    const fetchMock = mockApi();
+    await login();
+    searchFor("");
+    await screen.findByText(/Encontramos/);
+
+    expect(searchUrl(fetchMock).search).toBe("");
+  });
+
+  it("muestra los grupos cerrados como cerrados aunque tengan cupo", async () => {
+    mockApi();
+    await login();
+    searchFor("calculo");
+
+    expect(await screen.findByText("Encontramos 2 grupos")).toBeInTheDocument();
+    expect(screen.getByText("Cerrado")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[1]);
+    expect(screen.getByRole("button", { name: "Grupo cerrado" })).toBeDisabled();
+  });
+
+  it("abre el detalle con los datos de la búsqueda", async () => {
+    mockApi();
+    await login();
+    searchFor("calculo");
+    await screen.findByText("Encontramos 2 grupos");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[0]);
+    expect(screen.getByRole("heading", { name: "Cálculo II" })).toBeInTheDocument();
+    expect(screen.getByText("Repaso para el certamen.")).toBeInTheDocument();
+    expect(screen.getByText("Integrantes (2/4)")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Solicitar ingreso" })).toBeEnabled();
+  });
+
+  it("muestra el estado vacío si no hay resultados", async () => {
+    mockApi();
+    await login();
+    searchFor("química");
+
+    expect(await screen.findByText("Aún no hay grupos con esos filtros")).toBeInTheDocument();
+  });
+
+  it("muestra el error y permite reintentar", async () => {
+    let fail = true;
+    mockApi({
+      "GET /api/grupos": () => (fail ? [500, { detail: "Error interno" }] : [200, apiGroups]),
     });
-    expect(result.map((g) => g.id)).toEqual([2]);
-  });
+    await login();
+    searchFor("");
 
-  it("también encuentra grupos por sigla", () => {
-    const result = filterGroups(groups, { query: "fis 1513", isOnline: null, days: [], blocks: [] });
-    expect(result.map((g) => g.id)).toEqual([4]);
-  });
-
-  it("filtra presenciales y por bloque de la mañana", () => {
-    const result = filterGroups(groups, { query: "", isOnline: false, days: [], blocks: [true] });
-    expect(result.map((g) => g.id)).toEqual([3, 5]);
-  });
-
-  it("exige que el día y el bloque calcen en el mismo horario", () => {
-    const schedule = [
-      { day: 0, isMorning: true },
-      { day: 2, isMorning: false },
-    ];
-    const group = { ...groups[0], schedule };
-    const filters = { query: "", isOnline: null, days: [0], blocks: [false] };
-    expect(filterGroups([group], filters)).toEqual([]);
+    expect(await screen.findByText("Error interno")).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByText("Encontramos 3 grupos")).toBeInTheDocument();
   });
 });

@@ -5,6 +5,8 @@ import { formatDate, modalityLabel, scheduleLabel } from "../data/mock";
 
 export default function GroupDetail({ group, isMember = false, onEnter, onBack }) {
   const [requested, setRequested] = useState(false);
+  // isOpen viene del buscador; los grupos de ejemplo no lo traen
+  const closed = group.isOpen === false;
   const full = group.members >= group.capacity;
   const freeSpots = group.capacity - group.members;
 
@@ -18,7 +20,7 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
             <span className="eyebrow">Grupo de estudio</span>
             <h1>{group.subject}</h1>
           </div>
-          <StatusBadge members={group.members} capacity={group.capacity} />
+          <StatusBadge members={group.members} capacity={group.capacity} open={!closed} />
         </header>
 
         <div className="info-grid">
@@ -60,18 +62,21 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
             </span>
           </div>
           <CapacityBar members={group.members} capacity={group.capacity} />
-          <ul className="member-list">
-            {group.integrants.map((m) => (
-              <li key={m.name} className="member">
-                <Avatar name={m.name} />
-                <div>
-                  <strong>{m.name}</strong>
-                  <span className="muted small">{m.career}</span>
-                </div>
-                {m.name === group.owner && <span className="badge badge-soft">Creador</span>}
-              </li>
-            ))}
-          </ul>
+          {/* Los integrantes los trae el detalle del grupo (B07); el buscador no los incluye */}
+          {group.integrants && (
+            <ul className="member-list">
+              {group.integrants.map((m) => (
+                <li key={m.name} className="member">
+                  <Avatar name={m.name} />
+                  <div>
+                    <strong>{m.name}</strong>
+                    <span className="muted small">{m.career}</span>
+                  </div>
+                  {m.name === group.owner && <span className="badge badge-soft">Creador</span>}
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <div className="detail-actions">
@@ -79,15 +84,15 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
             <button type="button" className="btn btn-primary btn-lg btn-block" onClick={onEnter}>
               <Icon name="chat" size={18} /> Abrir grupo
             </button>
-          ) : full ? (
+          ) : full || closed ? (
             <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
-              Grupo completo
+              {full ? "Grupo completo" : "Grupo cerrado"}
             </button>
           ) : requested ? (
             <div className="request-sent">
               <span className="request-sent-text">
                 <Icon name="check" size={18} strokeWidth={2.4} /> Solicitud enviada. Te avisaremos
-                cuando {group.owner} responda.
+                cuando {group.owner ?? "el creador"} responda.
               </span>
               <button type="button" className="link-btn" onClick={() => setRequested(false)}>
                 Cancelar solicitud

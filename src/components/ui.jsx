@@ -67,11 +67,13 @@ export function CapacityBar({ members, capacity }) {
   );
 }
 
-export function StatusBadge({ members, capacity }) {
+// open: GRUPO_ESTUDIO.abierto. Un grupo puede estar cerrado sin estar lleno (lo cerró el creador).
+export function StatusBadge({ members, capacity, open = true }) {
   const full = members >= capacity;
+  const closed = full || !open;
   return (
-    <span className={`badge ${full ? "badge-closed" : "badge-open"}`}>
-      {full ? "Completo" : "Abierto"}
+    <span className={`badge ${closed ? "badge-closed" : "badge-open"}`}>
+      {full ? "Completo" : closed ? "Cerrado" : "Abierto"}
     </span>
   );
 }

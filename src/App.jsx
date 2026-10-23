@@ -38,7 +38,8 @@ function App() {
   const [view, setView] = useState("home");
   const [previousView, setPreviousView] = useState("home");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  const [selectedGroupId, setSelectedGroupId] = useState(null);
+  // Grupo abierto en el detalle o en su espacio. Viene del buscador (API) o de "Mis grupos" (mock)
+  const [selectedGroup, setSelectedGroup] = useState(null);
 
   const navigate = (next) => {
     setPreviousView(view);
@@ -46,14 +47,15 @@ function App() {
     window.scrollTo?.({ top: 0 });
   };
 
-  const openGroup = (id) => {
-    setSelectedGroupId(id);
+  const openGroup = (group) => {
+    setSelectedGroup(group);
     navigate("detail");
   };
 
   // Espacio interno del grupo (asistente y archivos), solo para integrantes.
+  // "Mis grupos" todavía usa los datos de ejemplo (B09).
   const openRoom = (id) => {
-    setSelectedGroupId(id);
+    setSelectedGroup(groups.find((g) => g.id === id));
     navigate("room");
   };
 
@@ -107,8 +109,11 @@ function App() {
     showLogin();
   };
 
-  const isMember = (id) =>
-    myGroups.participating.includes(id) || myGroups.created.some((c) => c.groupId === id);
+  // La membresía real llega con B08/B09; por ahora solo los grupos de ejemplo tienen integrantes
+  const isMember = (group) =>
+    groups.includes(group) &&
+    (myGroups.participating.includes(group.id) ||
+      myGroups.created.some((c) => c.groupId === group.id));
 
   if (authStep === "loading") {
     return (
@@ -145,8 +150,6 @@ function App() {
     );
   }
 
-  const selectedGroup = groups.find((g) => g.id === selectedGroupId);
-
   return (
     <div className="app">
       <Navbar current={view} onNavigate={navigate} userName={user.name} />
@@ -164,7 +167,6 @@ function App() {
         )}
         {view === "results" && (
           <Results
-            groups={groups}
             filters={filters}
             onBack={() => navigate("home")}
             onOpen={openGroup}
@@ -175,7 +177,7 @@ function App() {
         {view === "detail" && selectedGroup && (
           <GroupDetail
             group={selectedGroup}
-            isMember={isMember(selectedGroup.id)}
+            isMember={isMember(selectedGroup)}
             onEnter={() => openRoom(selectedGroup.id)}
             onBack={() => navigate(previousView)}
           />
