@@ -251,6 +251,19 @@ describe("Inicio de sesión y verificación", () => {
     expect(getToken()).toBeNull();
   });
 
+  it("avisa cuando hay demasiados intentos fallidos", async () => {
+    mockApi({
+      "POST /api/auth/login": () => [
+        429,
+        { detail: "Demasiados intentos fallidos. Intenta de nuevo en 15 minutos." },
+      ],
+    });
+    render(<App />);
+    fillLogin();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Demasiados intentos fallidos");
+  });
+
   it("no envía contraseñas de más de 72 caracteres", () => {
     const fetchMock = mockApi();
     render(<App />);
