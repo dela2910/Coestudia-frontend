@@ -297,6 +297,24 @@
   }
 }
 
+/* Casilla con texto al lado (ej. aceptar términos y condiciones). */
+.checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.checkbox-field input {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--sky-600);
+}
+
 .form-error {
   margin: 0;
   padding: 0.6rem 0.85rem;

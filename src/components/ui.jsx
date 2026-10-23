@@ -36,7 +36,7 @@ export function ToggleGroup({ options, value, onChange, multiple = false, label 
     <div className="toggle-group" role="group" aria-label={label}>
       {options.map((opt) => (
         <button
-          key={opt.id}
+          key={String(opt.id)}
           type="button"
           className={`pill ${isActive(opt.id) ? "pill-active" : ""}`}
           aria-pressed={isActive(opt.id)}

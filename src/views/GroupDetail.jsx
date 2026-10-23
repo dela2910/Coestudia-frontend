@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, CapacityBar, StatusBadge } from "../components/ui";
-import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import { formatDate, modalityLabel, scheduleLabel } from "../data/mock";
 
 export default function GroupDetail({ group, isMember = false, onEnter, onBack }) {
   const [requested, setRequested] = useState(false);
@@ -23,24 +23,24 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
 
         <div className="info-grid">
           <div className="info">
-            <Icon name={group.modality === "online" ? "monitor" : "mapPin"} size={20} />
+            <Icon name={group.isOnline ? "monitor" : "mapPin"} size={20} />
             <div>
               <span className="info-label">Modalidad</span>
-              <span>{modalityLabel(group.modality)}</span>
+              <span>{modalityLabel(group.isOnline)}</span>
             </div>
           </div>
           <div className="info">
             <Icon name="calendar" size={20} />
             <div>
-              <span className="info-label">Día</span>
-              <span>{dayLabel(group.day)}</span>
+              <span className="info-label">Horario</span>
+              <span>{scheduleLabel(group.schedule)}</span>
             </div>
           </div>
           <div className="info">
             <Icon name="clock" size={20} />
             <div>
-              <span className="info-label">Bloque</span>
-              <span>{blockLabel(group.block)}</span>
+              <span className="info-label">Vigente hasta</span>
+              <span>{formatDate(group.validUntil)}</span>
             </div>
           </div>
         </div>

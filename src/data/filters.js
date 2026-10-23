@@ -11,12 +11,20 @@ const matchesQuery = (group, query) =>
   normalize(group.subject).includes(normalize(query)) ||
   normalize(group.code).includes(normalize(query).replace(/\s+/g, ""));
 
-export function filterGroups(groups, { query, modality, days, blocks }) {
+// Un horario calza si su día y su bloque están entre los elegidos (sin elegir = cualquiera).
+const matchesSchedule = (group, days, blocks) =>
+  group.schedule.some(
+    (h) =>
+      (days.length === 0 || days.includes(h.day)) &&
+      (blocks.length === 0 || blocks.includes(h.isMorning)),
+  );
+
+// isOnline: null = cualquier modalidad; blocks: valores de isMorning elegidos.
+export function filterGroups(groups, { query, isOnline, days, blocks }) {
   return groups.filter(
     (g) =>
       matchesQuery(g, query) &&
-      (!modality || g.modality === modality) &&
-      (days.length === 0 || days.includes(g.day)) &&
-      (blocks.length === 0 || blocks.includes(g.block)),
+      (isOnline === null || g.isOnline === isOnline) &&
+      matchesSchedule(g, days, blocks),
   );
 }

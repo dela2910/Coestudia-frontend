@@ -122,7 +122,16 @@ describe("Registro", () => {
     expect(screen.getByText("Pontificia Universidad Católica de Chile")).toBeInTheDocument();
 
     submit();
+    expect(screen.getByRole("alert")).toHaveTextContent("Debes aceptar los términos");
+
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
     expect(screen.getByRole("heading", { name: "Verifica tu correo" })).toBeInTheDocument();
+  });
+
+  it("no muestra la casilla de términos al iniciar sesión", () => {
+    render(<App />);
+    expect(screen.queryByLabelText(/Acepto los términos/)).not.toBeInTheDocument();
   });
 
   it("rechaza correos de dominios no habilitados", () => {
@@ -148,6 +157,8 @@ describe("Crear grupo", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Crear grupo/ })[0]);
   };
   const publish = () => screen.getByRole("button", { name: "Publicar grupo" });
+  const setValidUntil = (value) =>
+    fireEvent.change(screen.getByLabelText(/Vigente hasta/), { target: { value } });
 
   it("reconoce una sigla existente y pide el lugar si es presencial", () => {
     openCreate();
@@ -162,6 +173,9 @@ describe("Crear grupo", () => {
     expect(publish()).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    // Sin fecha de vigencia no se puede publicar
+    expect(publish()).toBeDisabled();
+    setValidUntil("2099-12-01");
     expect(publish()).toBeEnabled();
     fireEvent.click(publish());
     expect(screen.getByText(/Tu grupo de Cálculo II ya está visible/)).toBeInTheDocument();
@@ -183,8 +197,22 @@ describe("Crear grupo", () => {
     fireEvent.change(screen.getByLabelText(/Enlace de la reunión/), {
       target: { value: "https://meet.google.com/abc" },
     });
+    setValidUntil("2099-12-01");
     expect(screen.getByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
     expect(publish()).toBeEnabled();
+  });
+
+  it("no acepta una fecha de vigencia pasada", () => {
+    openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "MAT1620" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+
+    setValidUntil("2020-01-01");
+    expect(publish()).toBeDisabled();
   });
 });
 
@@ -262,15 +290,30 @@ describe("filterGroups", () => {
   it("filtra por ramo sin importar tildes, modalidad y día", () => {
     const result = filterGroups(groups, {
       query: "CALCULO",
-      modality: "online",
-      days: ["J"],
+      isOnline: true,
+      days: [3],
       blocks: [],
     });
     expect(result.map((g) => g.id)).toEqual([2]);
   });
 
   it("también encuentra grupos por sigla", () => {
-    const result = filterGroups(groups, { query: "fis 1513", modality: null, days: [], blocks: [] });
+    const result = filterGroups(groups, { query: "fis 1513", isOnline: null, days: [], blocks: [] });
     expect(result.map((g) => g.id)).toEqual([4]);
+  });
+
+  it("filtra presenciales y por bloque de la mañana", () => {
+    const result = filterGroups(groups, { query: "", isOnline: false, days: [], blocks: [true] });
+    expect(result.map((g) => g.id)).toEqual([3, 5]);
+  });
+
+  it("exige que el día y el bloque calcen en el mismo horario", () => {
+    const schedule = [
+      { day: 0, isMorning: true },
+      { day: 2, isMorning: false },
+    ];
+    const group = { ...groups[0], schedule };
+    const filters = { query: "", isOnline: null, days: [0], blocks: [false] };
+    expect(filterGroups([group], filters)).toEqual([]);
   });
 });

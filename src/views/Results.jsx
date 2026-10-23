@@ -13,7 +13,7 @@ export default function Results({ groups, filters, onBack, onOpen, onCreate }) {
 
   const chips = [
     filters.query && `“${filters.query}”`,
-    filters.modality && modalityLabel(filters.modality),
+    filters.isOnline !== null && modalityLabel(filters.isOnline),
     ...filters.days.map(dayLabel),
     ...filters.blocks.map(blockLabel),
   ].filter(Boolean);

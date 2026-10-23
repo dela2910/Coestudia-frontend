@@ -7,6 +7,7 @@ import {
   MODALITIES,
   blockLabel,
   dayLabel,
+  formatDate,
   modalityLabel,
   subjects,
 } from "../data/mock";
@@ -16,26 +17,40 @@ const MAX_DESCRIPTION = 280;
 const MIN_CAPACITY = 2;
 const MAX_CAPACITY = 10;
 
+// Fecha local en formato YYYY-MM-DD, el que usa <input type="date">
+const isoDate = (date) => {
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+};
+
 export default function CreateGroup({ user, onDone }) {
   const [code, setCode] = useState("");
   const [newName, setNewName] = useState("");
   const [description, setDescription] = useState("");
-  const [modality, setModality] = useState("presencial");
+  const [isOnline, setIsOnline] = useState(false);
   const [place, setPlace] = useState("");
   const [link, setLink] = useState("");
   const [days, setDays] = useState([]);
   const [blocks, setBlocks] = useState([]);
   const [capacity, setCapacity] = useState(4);
+  // GRUPO_ESTUDIO.vigente_hasta: después de esta fecha el grupo se elimina por vigencia
+  const [validUntil, setValidUntil] = useState("");
+  // Se calcula una vez al abrir el formulario: la vigencia mínima es mañana
+  const [tomorrow] = useState(() => isoDate(new Date(Date.now() + 24 * 60 * 60 * 1000)));
   const [published, setPublished] = useState(false);
 
   // "Buscar o crear": si la sigla ya existe se usa esa asignatura; si no, se pide su nombre
   // y el backend la crea al publicar el grupo.
   const existing = code.trim() ? findSubject(subjects, code) : null;
   const subjectName = existing ? existing.name : newName.trim();
-  const isOnline = modality === "online";
   const meetingPoint = isOnline ? link.trim() : place.trim();
   const canPublish =
-    code.trim() && subjectName && meetingPoint && days.length > 0 && blocks.length > 0;
+    code.trim() &&
+    subjectName &&
+    meetingPoint &&
+    days.length > 0 &&
+    blocks.length > 0 &&
+    validUntil >= tomorrow;
   // Los ramos del usuario aparecen primero en el autocompletado.
   const options = [...subjects].sort(
     (a, b) => user.subjects.includes(b.code) - user.subjects.includes(a.code),
@@ -147,13 +162,13 @@ export default function CreateGroup({ user, onDone }) {
               <div className="option-cards">
                 {MODALITIES.map((m) => (
                   <button
-                    key={m.id}
+                    key={String(m.id)}
                     type="button"
-                    className={`option-card ${modality === m.id ? "option-card-active" : ""}`}
-                    aria-pressed={modality === m.id}
-                    onClick={() => setModality(m.id)}
+                    className={`option-card ${isOnline === m.id ? "option-card-active" : ""}`}
+                    aria-pressed={isOnline === m.id}
+                    onClick={() => setIsOnline(m.id)}
                   >
-                    <Icon name={m.id === "online" ? "monitor" : "mapPin"} size={22} />
+                    <Icon name={m.id ? "monitor" : "mapPin"} size={22} />
                     <span>{m.label}</span>
                   </button>
                 ))}
@@ -201,6 +216,21 @@ export default function CreateGroup({ user, onDone }) {
                 multiple
               />
             </div>
+            <label className="field">
+              <span className="field-label">Vigente hasta</span>
+              <div className="input-wrap">
+                <Icon name="calendar" size={18} />
+                <input
+                  type="date"
+                  min={tomorrow}
+                  value={validUntil}
+                  onChange={(e) => setValidUntil(e.target.value)}
+                />
+              </div>
+              <span className="field-hint">
+                Después de esta fecha el grupo se elimina solo (ej. el día del examen).
+              </span>
+            </label>
           </fieldset>
 
           <fieldset className="form-section">
@@ -238,8 +268,8 @@ export default function CreateGroup({ user, onDone }) {
           </button>
           {!canPublish && (
             <p className="field-hint center">
-              Completa la asignatura, el {isOnline ? "enlace" : "lugar"} y elige al menos un día y
-              un bloque.
+              Completa la asignatura, el {isOnline ? "enlace" : "lugar"}, al menos un día y un
+              bloque, y hasta cuándo estará vigente.
             </p>
           )}
         </form>
@@ -258,14 +288,20 @@ export default function CreateGroup({ user, onDone }) {
               </div>
               <div className="meta">
                 <span className="meta-item">
-                  <Icon name={modality === "online" ? "monitor" : "mapPin"} size={16} />
-                  {modalityLabel(modality)}
+                  <Icon name={isOnline ? "monitor" : "mapPin"} size={16} />
+                  {modalityLabel(isOnline)}
                 </span>
                 <span className="meta-item">
                   <Icon name="calendar" size={16} />
                   {days.length ? days.map(dayLabel).join(", ") : "Sin días"} ·{" "}
                   {blocks.length ? blocks.map(blockLabel).join(", ") : "Sin bloque"}
                 </span>
+                {validUntil && (
+                  <span className="meta-item">
+                    <Icon name="clock" size={16} />
+                    Hasta el {formatDate(validUntil)}
+                  </span>
+                )}
               </div>
               {description && <p className="preview-desc">{description}</p>}
               <CapacityBar members={1} capacity={capacity} />
