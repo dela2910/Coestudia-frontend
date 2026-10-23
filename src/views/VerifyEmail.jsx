@@ -1,11 +1,30 @@
 import { useState } from "react";
+import { resendVerification } from "../api/auth";
+import { errorMessage } from "../api/client";
 import AuthHero from "../components/AuthHero";
 import Icon from "../components/Icon";
 
-// Pantalla intermedia después de iniciar sesión: pide verificar el correo UC.
-// Maqueta: no se envía ningún correo; "Ya verifiqué mi correo" deja pasar al resto de la app.
-export default function VerifyEmail({ email, onVerified, onChangeEmail }) {
+// Pantalla después de crear la cuenta (o de intentar entrar sin verificar): pide abrir el enlace
+// que llegó al correo. El enlace abre Coestudia con ?verificar=<token> y App inicia la sesión.
+// fromRegister: recién creó la cuenta (corregir el correo vuelve al registro con sus datos);
+// si no, intentó iniciar sesión sin verificar (vuelve al inicio de sesión).
+export default function VerifyEmail({ email, fromRegister = false, onBackToLogin, onChangeEmail }) {
   const [resent, setResent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  const resend = async () => {
+    setSending(true);
+    setError("");
+    try {
+      await resendVerification(email);
+      setResent(true);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="auth">
@@ -33,13 +52,19 @@ export default function VerifyEmail({ email, onVerified, onChangeEmail }) {
               <span className="step">2</span> Busca el correo de Coestudia (revisa también spam).
             </li>
             <li>
-              <span className="step">3</span> Haz clic en el enlace y vuelve aquí.
+              <span className="step">3</span> Haz clic en el enlace: entrarás directo a Coestudia.
             </li>
           </ol>
 
-          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={onVerified}>
+          <button type="button" className="btn btn-primary btn-lg btn-block" onClick={onBackToLogin}>
             <Icon name="check" size={18} strokeWidth={2.4} /> Ya verifiqué mi correo
           </button>
+
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
 
           {resent ? (
             <p className="request-sent verify-resent">
@@ -48,15 +73,20 @@ export default function VerifyEmail({ email, onVerified, onChangeEmail }) {
               </span>
             </p>
           ) : (
-            <button type="button" className="btn btn-ghost btn-block" onClick={() => setResent(true)}>
-              Reenviar correo
+            <button
+              type="button"
+              className="btn btn-ghost btn-block"
+              onClick={resend}
+              disabled={sending}
+            >
+              {sending ? "Enviando…" : "Reenviar correo"}
             </button>
           )}
 
           <p className="muted center small">
             ¿Te equivocaste de correo?{" "}
             <button type="button" className="link-btn" onClick={onChangeEmail}>
-              Usar otro correo
+              {fromRegister ? "Corregir el correo" : "Usar otro correo"}
             </button>
           </p>
         </div>

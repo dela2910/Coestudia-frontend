@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getMe, logout, verifyEmail } from "./api/auth";
+import { errorMessage, getToken, onSessionExpired } from "./api/client";
 import Navbar from "./components/Navbar";
 import { currentUser, groupFiles, groups, myGroups } from "./data/mock";
 import CreateGroup from "./views/CreateGroup";
@@ -13,10 +15,25 @@ import "./App.css";
 
 const EMPTY_FILTERS = { query: "", isOnline: null, days: [], blocks: [] };
 
+// Token del enlace de verificación que llega por correo: <frontend>/?verificar=<token>
+const verificationToken = () => new URLSearchParams(window.location.search).get("verificar");
+
+// Las asignaturas del perfil todavía salen de los datos de ejemplo (se conectan en B03).
+const withMockSubjects = (user) => ({ ...user, subjects: currentUser.subjects });
+
 function App() {
-  // authStep: "login" | "verify" (verificar correo) | "done"
-  const [authStep, setAuthStep] = useState("login");
+  // authStep: "loading" (revisando la sesión) | "login" | "verify" (verificar correo) | "done"
+  const [authStep, setAuthStep] = useState(() =>
+    verificationToken() || getToken() ? "loading" : "login",
+  );
+  const [user, setUser] = useState(null);
   const [email, setEmail] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
+  // Datos del registro recién enviado, para volver a él si el correo estaba mal
+  const [registerDraft, setRegisterDraft] = useState(null);
+  const [loginDraft, setLoginDraft] = useState(null);
+  // En desarrollo StrictMode corre los efectos dos veces; el token de verificación es de un solo uso
+  const sessionChecked = useRef(false);
   // view: "home" | "results" | "create" | "detail" | "room" | "profile"
   const [view, setView] = useState("home");
   const [previousView, setPreviousView] = useState("home");
@@ -40,14 +57,77 @@ function App() {
     navigate("room");
   };
 
+  const enter = (loggedUser) => {
+    setUser(withMockSubjects(loggedUser));
+    setAuthStep("done");
+    setView("home");
+  };
+
+  // draft: si viene, se abre "Crear cuenta" con esos datos ya llenos
+  const showLogin = (notice = "", draft = null) => {
+    setAuthNotice(notice);
+    setLoginDraft(draft);
+    setAuthStep("login");
+  };
+
+  // Al abrir la app: primero el enlace de verificación, si no, la sesión guardada.
+  useEffect(() => {
+    if (sessionChecked.current) return;
+    sessionChecked.current = true;
+
+    const token = verificationToken();
+    if (token) {
+      // Se saca el token de la URL para que no quede en el historial ni se reutilice al recargar
+      window.history.replaceState(null, "", window.location.pathname);
+      verifyEmail(token)
+        .then(enter)
+        .catch((err) => showLogin(errorMessage(err)));
+    } else if (getToken()) {
+      getMe()
+        .then(enter)
+        .catch(() => {
+          logout();
+          showLogin();
+        });
+    }
+  }, []);
+
+  // Si una llamada responde 401 a mitad de uso (la sesión venció), se vuelve al login con el aviso
+  useEffect(() => {
+    onSessionExpired((detail) => {
+      setUser(null);
+      showLogin(detail);
+    });
+    return () => onSessionExpired(null);
+  }, []);
+
+  const signOut = () => {
+    logout();
+    setUser(null);
+    showLogin();
+  };
+
   const isMember = (id) =>
     myGroups.participating.includes(id) || myGroups.created.some((c) => c.groupId === id);
+
+  if (authStep === "loading") {
+    return (
+      <div className="auth-loading" role="status">
+        Cargando…
+      </div>
+    );
+  }
 
   if (authStep === "login") {
     return (
       <Login
-        onLogin={(typedEmail) => {
-          setEmail(typedEmail || currentUser.email);
+        key={authNotice}
+        notice={authNotice}
+        draft={loginDraft}
+        onLoggedIn={enter}
+        onNeedsVerification={(typedEmail, draft = null) => {
+          setEmail(typedEmail);
+          setRegisterDraft(draft);
           setAuthStep("verify");
         }}
       />
@@ -58,11 +138,9 @@ function App() {
     return (
       <VerifyEmail
         email={email}
-        onVerified={() => {
-          setAuthStep("done");
-          setView("home");
-        }}
-        onChangeEmail={() => setAuthStep("login")}
+        fromRegister={Boolean(registerDraft)}
+        onBackToLogin={() => showLogin()}
+        onChangeEmail={() => showLogin("", registerDraft)}
       />
     );
   }
@@ -71,11 +149,11 @@ function App() {
 
   return (
     <div className="app">
-      <Navbar current={view} onNavigate={navigate} userName={currentUser.name} />
+      <Navbar current={view} onNavigate={navigate} userName={user.name} />
       <main className="main">
         {view === "home" && (
           <Home
-            user={currentUser}
+            user={user}
             initialFilters={filters}
             onSearch={(next) => {
               setFilters(next);
@@ -93,7 +171,7 @@ function App() {
             onCreate={() => navigate("create")}
           />
         )}
-        {view === "create" && <CreateGroup user={currentUser} onDone={() => navigate("profile")} />}
+        {view === "create" && <CreateGroup user={user} onDone={() => navigate("profile")} />}
         {view === "detail" && selectedGroup && (
           <GroupDetail
             group={selectedGroup}
@@ -106,19 +184,19 @@ function App() {
           <GroupRoom
             key={selectedGroup.id}
             group={selectedGroup}
-            user={currentUser}
+            user={user}
             initialFiles={groupFiles[selectedGroup.id]}
             onBack={() => navigate("profile")}
           />
         )}
         {view === "profile" && (
           <Profile
-            user={currentUser}
+            user={user}
             groups={groups}
             myGroups={myGroups}
             onOpen={openRoom}
             onCreate={() => navigate("create")}
-            onLogout={() => setAuthStep("login")}
+            onLogout={signOut}
           />
         )}
       </main>

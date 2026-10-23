@@ -29,6 +29,25 @@ export class ApiError extends Error {
   }
 }
 
+// Qué hacer cuando el backend rechaza la sesión (venció o cambió la contraseña). Lo define App.
+let sessionExpiredHandler = null;
+export const onSessionExpired = (handler) => {
+  sessionExpiredHandler = handler;
+};
+
+// FastAPI responde {"detail": "mensaje"} o, si falla la validación (422), una lista de errores.
+const readDetail = (data, status) => {
+  if (typeof data?.detail === "string") return data.detail;
+  const first = Array.isArray(data?.detail) ? data.detail[0]?.msg : null;
+  // Pydantic antepone "Value error, " a los mensajes de los validadores
+  if (first) return first.replace(/^Value error, /, "");
+  return `Error ${status}`;
+};
+
+// Texto para mostrar al usuario cuando falla una llamada.
+export const errorMessage = (error) =>
+  error instanceof ApiError ? error.message : "No pudimos conectar con el servidor. Intenta de nuevo.";
+
 // Llamada base a la API: todas las funciones de src/api/ deben usarla.
 // Envía y recibe JSON y agrega el token de sesión si existe.
 export async function request(path, { method = "GET", body } = {}) {
@@ -45,8 +64,12 @@ export async function request(path, { method = "GET", body } = {}) {
 
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
-    // FastAPI responde {"detail": "mensaje"} o, si falla la validación, una lista de errores
-    const detail = typeof data?.detail === "string" ? data.detail : `Error ${res.status}`;
+    const detail = readDetail(data, res.status);
+    // 401 con sesión: el token ya no sirve, se borra y la app vuelve al inicio de sesión
+    if (res.status === 401 && token) {
+      setToken(null);
+      sessionExpiredHandler?.(detail);
+    }
     throw new ApiError(res.status, detail);
   }
   return data;

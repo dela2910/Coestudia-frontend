@@ -297,6 +297,29 @@
   }
 }
 
+/* Requisitos de la contraseña: se marcan en verde a medida que se cumplen. */
+.password-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.password-rules li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.password-rules .rule-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+
 /* Casilla con texto al lado (ej. aceptar términos y condiciones). */
 .checkbox-field {
   display: flex;
@@ -564,6 +587,15 @@ textarea::placeholder {
 }
 
 /* ---------- Auth ---------- */
+/* Mientras se revisa la sesión guardada o el enlace de verificación. */
+.auth-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
 .auth {
   min-height: 100vh;
   display: grid;

@@ -38,6 +38,7 @@ push a `main`.
 src/
 ├── api/
 │   ├── client.js      # request() base, token de sesión y URL del backend
+│   ├── auth.js        # registro, verificación del correo, login y sesión
 │   └── assistant.js   # asistente IA (simulado)
 ├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
 ├── data/
@@ -69,6 +70,13 @@ Las vistas todavía usan los datos de `src/data/mock.js`. Cada tarea conecta su 
 
 2. En la vista, reemplaza el dato de `mock.js` por la llamada y muestra los estados de carga y
    error.
+
+La sesión ya funciona contra el backend: al iniciar sesión se guarda el JWT y `request()` lo
+manda solo en cada llamada, así que los endpoints protegidos no necesitan nada extra. Si una
+llamada responde 401 porque la sesión venció, `request()` borra el token y la app vuelve sola al
+inicio de sesión: las vistas solo tienen que mostrar sus propios errores. El enlace
+del correo de verificación abre `/?verificar=<token>` y `App.jsx` inicia la sesión. En local, ese
+enlace aparece en la consola del backend.
 
 Los datos de ejemplo ya tienen la forma del modelo: `isOnline` (es_online), `schedule` con
 `{ day, isMorning }` (horario_grupo: día 0 = lunes … 5 = sábado), `place` o `link`, y
