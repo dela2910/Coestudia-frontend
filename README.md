@@ -26,6 +26,7 @@ puedes apuntar `VITE_API_URL` al backend en producción: `https://coestudia-back
 ```bash
 npm run lint     # oxlint
 npm test         # vitest (no necesita el backend corriendo)
+npm run coverage # vitest con el porcentaje de cobertura por archivo
 npm run build    # genera dist/
 ```
 
