@@ -127,7 +127,7 @@ describe("Registro", () => {
     fill(/Correo UC/, email);
     fill("Carrera", "Ingeniería Civil");
     fill("Año de ingreso", "2024");
-    fill("Contraseña", "clave-segura-1");
+    fill("Contraseña", "Clave-segura-1");
   };
 
   it("pide todos los datos, deduce la universidad y exige aceptar los términos", async () => {
@@ -150,7 +150,7 @@ describe("Registro", () => {
     const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/api/auth/registro"));
     expect(JSON.parse(options.body)).toEqual({
       email: "camila@uc.cl",
-      password: "clave-segura-1",
+      password: "Clave-segura-1",
       nombre: "Camila Pérez",
       carrera: "Ingeniería Civil",
       anio_ingreso: 2024,
@@ -167,14 +167,30 @@ describe("Registro", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("solo se aceptan correos @uc.cl");
   });
 
-  it("pide una contraseña de al menos 8 caracteres", () => {
+  it.each(["Corta1", "sin-mayuscula-1", "SIN-MINUSCULA-1", "Sin-numero"])(
+    "rechaza la contraseña débil %s",
+    (password) => {
+      mockApi();
+      openRegister();
+      fillForm();
+      fill("Contraseña", password);
+      submit();
+
+      expect(screen.getByRole("alert")).toHaveTextContent("cumplir todos los requisitos");
+    },
+  );
+
+  it("marca los requisitos de la contraseña a medida que se cumplen", () => {
     mockApi();
     openRegister();
-    fillForm();
-    fill("Contraseña", "corta");
-    submit();
+    const rules = screen.getByRole("list", { name: "Requisitos de la contraseña" });
+    const ok = () => within(rules).getAllByRole("listitem").filter((li) => li.className === "rule-ok");
 
-    expect(screen.getByRole("alert")).toHaveTextContent("al menos 8 caracteres");
+    expect(ok()).toHaveLength(0);
+    fill("Contraseña", "abc");
+    expect(ok().map((li) => li.textContent)).toEqual(["Una minúscula"]);
+    fill("Contraseña", "Abcdefg1");
+    expect(ok()).toHaveLength(4);
   });
 
   it("muestra el error del backend si el correo ya tiene cuenta", async () => {

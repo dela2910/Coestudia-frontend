@@ -9,6 +9,16 @@ import { universityFromEmail } from "../data/universities";
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_ENTRY_YEAR = 1990;
 const MIN_PASSWORD = 8;
+// bcrypt (backend) usa solo los primeros 72 bytes
+const MAX_PASSWORD_BYTES = 72;
+
+// Mismas reglas que valida el backend (app/schemas.py)
+const PASSWORD_RULES = [
+  { label: `${MIN_PASSWORD} caracteres o más`, test: (p) => p.length >= MIN_PASSWORD },
+  { label: "Una mayúscula", test: (p) => p !== p.toLowerCase() },
+  { label: "Una minúscula", test: (p) => p !== p.toUpperCase() },
+  { label: "Un número", test: (p) => /\d/.test(p) },
+];
 
 // notice: aviso que llega desde fuera (ej. el enlace de verificación ya expiró)
 export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) {
@@ -32,8 +42,11 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) 
       return "Completa todos los campos.";
     }
     if (!university) return "Por ahora solo se aceptan correos @uc.cl.";
-    if (password.length < MIN_PASSWORD) {
-      return `La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.`;
+    if (!PASSWORD_RULES.every((rule) => rule.test(password))) {
+      return "La contraseña debe cumplir todos los requisitos.";
+    }
+    if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) {
+      return "La contraseña es demasiado larga.";
     }
     const year = Number(entryYear);
     if (year < MIN_ENTRY_YEAR || year > CURRENT_YEAR) {
@@ -201,7 +214,19 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) 
                 <Icon name={showPassword ? "eyeOff" : "eye"} size={18} />
               </button>
             </div>
-            {!isLogin && <span className="field-hint">Mínimo {MIN_PASSWORD} caracteres.</span>}
+            {!isLogin && (
+              <ul className="password-rules" aria-label="Requisitos de la contraseña">
+                {PASSWORD_RULES.map((rule) => {
+                  const ok = rule.test(password);
+                  return (
+                    <li key={rule.label} className={ok ? "rule-ok" : ""}>
+                      <Icon name={ok ? "check" : "minus"} size={14} strokeWidth={2.4} />
+                      {rule.label}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </label>
 
           {!isLogin && (
