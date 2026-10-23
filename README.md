@@ -72,7 +72,9 @@ Las vistas todavía usan los datos de `src/data/mock.js`. Cada tarea conecta su 
    error.
 
 La sesión ya funciona contra el backend: al iniciar sesión se guarda el JWT y `request()` lo
-manda solo en cada llamada, así que los endpoints protegidos no necesitan nada extra. El enlace
+manda solo en cada llamada, así que los endpoints protegidos no necesitan nada extra. Si una
+llamada responde 401 porque la sesión venció, `request()` borra el token y la app vuelve sola al
+inicio de sesión: las vistas solo tienen que mostrar sus propios errores. El enlace
 del correo de verificación abre `/?verificar=<token>` y `App.jsx` inicia la sesión. En local, ese
 enlace aparece en la consola del backend.
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_URL, ApiError, request, setToken } from "./client";
+import { API_URL, ApiError, getToken, onSessionExpired, request, setToken } from "./client";
 
 const mockFetch = (status, data) => {
   const fetchMock = vi.fn().mockResolvedValue({
@@ -44,6 +44,37 @@ describe("request", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect(error.status).toBe(401);
     expect(error.message).toBe("Correo o contraseña incorrectos");
+  });
+
+  it("muestra el mensaje de validación de FastAPI (422)", async () => {
+    mockFetch(422, {
+      detail: [{ loc: ["body", "password"], msg: "Value error, La contraseña debe tener al menos un número." }],
+    });
+    await expect(request("/api/auth/registro")).rejects.toThrow(
+      "La contraseña debe tener al menos un número.",
+    );
+  });
+
+  it("borra el token y avisa cuando la sesión venció", async () => {
+    mockFetch(401, { detail: "Tu sesión no es válida. Inicia sesión de nuevo." });
+    const handler = vi.fn();
+    onSessionExpired(handler);
+    setToken("vencido");
+
+    await expect(request("/api/grupos")).rejects.toThrow(ApiError);
+    expect(getToken()).toBeNull();
+    expect(handler).toHaveBeenCalledWith("Tu sesión no es válida. Inicia sesión de nuevo.");
+    onSessionExpired(null);
+  });
+
+  it("un 401 sin sesión (ej. contraseña incorrecta) no avisa que la sesión venció", async () => {
+    mockFetch(401, { detail: "Correo o contraseña incorrectos." });
+    const handler = vi.fn();
+    onSessionExpired(handler);
+
+    await expect(request("/api/auth/login")).rejects.toThrow("Correo o contraseña incorrectos.");
+    expect(handler).not.toHaveBeenCalled();
+    onSessionExpired(null);
   });
 
   it("usa un mensaje genérico si el error no trae detail", async () => {

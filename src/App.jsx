@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getMe, logout, verifyEmail } from "./api/auth";
-import { errorMessage, getToken } from "./api/client";
+import { errorMessage, getToken, onSessionExpired } from "./api/client";
 import Navbar from "./components/Navbar";
 import { currentUser, groupFiles, groups, myGroups } from "./data/mock";
 import CreateGroup from "./views/CreateGroup";
@@ -90,6 +90,15 @@ function App() {
           showLogin();
         });
     }
+  }, []);
+
+  // Si una llamada responde 401 a mitad de uso (la sesión venció), se vuelve al login con el aviso
+  useEffect(() => {
+    onSessionExpired((detail) => {
+      setUser(null);
+      showLogin(detail);
+    });
+    return () => onSessionExpired(null);
   }, []);
 
   const signOut = () => {
