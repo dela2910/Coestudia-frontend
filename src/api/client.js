@@ -29,6 +29,10 @@ export class ApiError extends Error {
   }
 }
 
+// Texto para mostrar al usuario cuando falla una llamada.
+export const errorMessage = (error) =>
+  error instanceof ApiError ? error.message : "No pudimos conectar con el servidor. Intenta de nuevo.";
+
 // Llamada base a la API: todas las funciones de src/api/ deben usarla.
 // Envía y recibe JSON y agrega el token de sesión si existe.
 export async function request(path, { method = "GET", body } = {}) {

@@ -564,6 +564,15 @@ textarea::placeholder {
 }
 
 /* ---------- Auth ---------- */
+/* Mientras se revisa la sesión guardada o el enlace de verificación. */
+.auth-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
 .auth {
   min-height: 100vh;
   display: grid;

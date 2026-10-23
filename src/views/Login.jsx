@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { login, register } from "../api/auth";
+import { ApiError, errorMessage } from "../api/client";
 import AuthHero from "../components/AuthHero";
 import BackendStatus from "../components/BackendStatus";
 import Icon from "../components/Icon";
@@ -6,26 +8,33 @@ import { universityFromEmail } from "../data/universities";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_ENTRY_YEAR = 1990;
+const MIN_PASSWORD = 8;
 
-export default function Login({ onLogin }) {
+// notice: aviso que llega desde fuera (ej. el enlace de verificación ya expiró)
+export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) {
   const [mode, setMode] = useState("login"); // "login" | "register"
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [career, setCareer] = useState("");
   const [entryYear, setEntryYear] = useState("");
   // USUARIO.terminos_aceptados_en: sin aceptar los términos no se puede crear la cuenta
   const [acceptedTerms, setAcceptedTerms] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(notice);
+  const [loading, setLoading] = useState(false);
   const isLogin = mode === "login";
   const university = universityFromEmail(email);
 
-  // Maqueta: solo se valida el registro; el backend repetirá estas mismas validaciones.
+  // El backend repite estas mismas validaciones; aquí se revisan antes para avisar al tiro.
   const registerError = () => {
-    if (!name.trim() || !email.trim() || !career.trim() || !entryYear) {
+    if (!name.trim() || !email.trim() || !career.trim() || !entryYear || !password) {
       return "Completa todos los campos.";
     }
     if (!university) return "Por ahora solo se aceptan correos @uc.cl.";
+    if (password.length < MIN_PASSWORD) {
+      return `La contraseña debe tener al menos ${MIN_PASSWORD} caracteres.`;
+    }
     const year = Number(entryYear);
     if (year < MIN_ENTRY_YEAR || year > CURRENT_YEAR) {
       return `El año de ingreso debe estar entre ${MIN_ENTRY_YEAR} y ${CURRENT_YEAR}.`;
@@ -34,19 +43,38 @@ export default function Login({ onLogin }) {
     return "";
   };
 
+  const loginError = () =>
+    !email.trim() || !password ? "Ingresa tu correo y tu contraseña." : "";
+
   const switchMode = (next) => {
     setMode(next);
     setError("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!isLogin) {
-      const message = registerError();
-      setError(message);
-      if (message) return;
+    const typedEmail = email.trim();
+    const message = isLogin ? loginError() : registerError();
+    setError(message);
+    if (message) return;
+
+    setLoading(true);
+    try {
+      if (isLogin) {
+        onLoggedIn(await login(typedEmail, password));
+      } else {
+        await register({ email: typedEmail, password, name, career, entryYear, acceptedTerms });
+        onNeedsVerification(typedEmail);
+      }
+    } catch (err) {
+      // 403: la cuenta existe pero aún no verifica el correo
+      if (isLogin && err instanceof ApiError && err.status === 403) {
+        onNeedsVerification(typedEmail);
+        return;
+      }
+      setError(errorMessage(err));
+      setLoading(false);
     }
-    onLogin(email.trim());
   };
 
   return (
@@ -160,6 +188,9 @@ export default function Login({ onLogin }) {
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
                 autoComplete={isLogin ? "current-password" : "new-password"}
+                aria-label="Contraseña"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
               />
               <button
                 type="button"
@@ -170,6 +201,7 @@ export default function Login({ onLogin }) {
                 <Icon name={showPassword ? "eyeOff" : "eye"} size={18} />
               </button>
             </div>
+            {!isLogin && <span className="field-hint">Mínimo {MIN_PASSWORD} caracteres.</span>}
           </label>
 
           {!isLogin && (
@@ -198,8 +230,8 @@ export default function Login({ onLogin }) {
             </p>
           )}
 
-          <button type="submit" className="btn btn-primary btn-lg btn-block">
-            {isLogin ? "Iniciar sesión" : "Crear cuenta"}
+          <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={loading}>
+            {loading ? "Un momento…" : isLogin ? "Iniciar sesión" : "Crear cuenta"}
           </button>
 
           <p className="muted center small">
