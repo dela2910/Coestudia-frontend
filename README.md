@@ -39,11 +39,11 @@ src/
 ├── api/
 │   ├── client.js      # request() base, token de sesión y URL del backend
 │   ├── auth.js        # registro, verificación del correo, login y sesión
+│   ├── groups.js      # buscar y filtrar grupos
 │   └── assistant.js   # asistente IA (simulado)
 ├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
 ├── data/
-│   ├── mock.js        # datos de ejemplo con la forma del modelo de datos
-│   └── filters.js     # filtro del buscador
+│   └── mock.js        # datos de ejemplo con la forma del modelo de datos
 ├── views/             # una vista por pantalla (Login, Home, Results, CreateGroup…)
 ├── test/
 │   └── setup.js       # configuración de Vitest + jest-dom
@@ -59,7 +59,8 @@ src/
 
 ## Conectar una vista a la API
 
-Las vistas todavía usan los datos de `src/data/mock.js`. Cada tarea conecta su vista al backend:
+El inicio de sesión y el buscador (`Home` y `Results`) ya usan la API; las demás vistas todavía
+usan los datos de `src/data/mock.js`. Cada tarea conecta su vista al backend:
 
 1. Agrega la función del endpoint en `src/api/` usando `request()`, que ya envía JSON, agrega el
    token de sesión y lanza `ApiError` con el mensaje (`detail`) de FastAPI:
