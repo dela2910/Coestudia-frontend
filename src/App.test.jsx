@@ -158,6 +158,33 @@ describe("Registro", () => {
     });
   });
 
+  it("permite corregir el correo sin volver a llenar el registro", async () => {
+    const fetchMock = mockApi();
+    openRegister();
+    fillForm("camila@uc.cl");
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
+    await screen.findByRole("heading", { name: "Verifica tu correo" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Corregir el correo" }));
+
+    expect(screen.getByRole("heading", { name: "Crea tu cuenta" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Nombre completo")).toHaveValue("Camila Pérez");
+    expect(screen.getByLabelText("Carrera")).toHaveValue("Ingeniería Civil");
+    expect(screen.getByLabelText("Año de ingreso")).toHaveValue(2024);
+    // El correo y la contraseña se vuelven a escribir
+    expect(screen.getByLabelText(/Correo UC/)).toHaveValue("");
+    expect(screen.getByLabelText("Contraseña")).toHaveValue("");
+
+    fill(/Correo UC/, "camila.perez@uc.cl");
+    fill("Contraseña", "Clave-segura-1");
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
+    expect(await screen.findByText("camila.perez@uc.cl")).toBeInTheDocument();
+    const registers = fetchMock.mock.calls.filter(([url]) => url.endsWith("/api/auth/registro"));
+    expect(JSON.parse(registers[1][1].body).email).toBe("camila.perez@uc.cl");
+  });
+
   it("rechaza correos de dominios no habilitados", () => {
     mockApi();
     openRegister();
@@ -247,6 +274,16 @@ describe("Inicio de sesión y verificación", () => {
     expect(JSON.parse(resend[1].body)).toEqual({ email: "camila@uc.cl" });
 
     fireEvent.click(screen.getByRole("button", { name: "Ya verifiqué mi correo" }));
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+  });
+
+  it("si viene del inicio de sesión, usar otro correo vuelve al inicio de sesión", async () => {
+    mockApi({ "POST /api/auth/login": () => [403, { detail: "Debes verificar tu correo." }] });
+    render(<App />);
+    fillLogin("camila@uc.cl");
+    await screen.findByRole("heading", { name: "Verifica tu correo" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Usar otro correo" }));
     expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
   });
 

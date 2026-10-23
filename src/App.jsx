@@ -29,6 +29,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("");
   const [authNotice, setAuthNotice] = useState("");
+  // Datos del registro recién enviado, para volver a él si el correo estaba mal
+  const [registerDraft, setRegisterDraft] = useState(null);
+  const [loginDraft, setLoginDraft] = useState(null);
   // En desarrollo StrictMode corre los efectos dos veces; el token de verificación es de un solo uso
   const sessionChecked = useRef(false);
   // view: "home" | "results" | "create" | "detail" | "room" | "profile"
@@ -60,8 +63,10 @@ function App() {
     setView("home");
   };
 
-  const showLogin = (notice = "") => {
+  // draft: si viene, se abre "Crear cuenta" con esos datos ya llenos
+  const showLogin = (notice = "", draft = null) => {
     setAuthNotice(notice);
+    setLoginDraft(draft);
     setAuthStep("login");
   };
 
@@ -109,9 +114,11 @@ function App() {
       <Login
         key={authNotice}
         notice={authNotice}
+        draft={loginDraft}
         onLoggedIn={enter}
-        onNeedsVerification={(typedEmail) => {
+        onNeedsVerification={(typedEmail, draft = null) => {
           setEmail(typedEmail);
+          setRegisterDraft(draft);
           setAuthStep("verify");
         }}
       />
@@ -122,8 +129,9 @@ function App() {
     return (
       <VerifyEmail
         email={email}
+        fromRegister={Boolean(registerDraft)}
         onBackToLogin={() => showLogin()}
-        onChangeEmail={() => showLogin()}
+        onChangeEmail={() => showLogin("", registerDraft)}
       />
     );
   }

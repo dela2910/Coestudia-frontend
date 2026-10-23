@@ -21,14 +21,15 @@ const PASSWORD_RULES = [
 ];
 
 // notice: aviso que llega desde fuera (ej. el enlace de verificación ya expiró)
-export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) {
-  const [mode, setMode] = useState("login"); // "login" | "register"
+// draft: datos de un registro anterior para corregir el correo sin llenar todo de nuevo
+export default function Login({ onLoggedIn, onNeedsVerification, notice = "", draft = null }) {
+  const [mode, setMode] = useState(draft ? "register" : "login"); // "login" | "register"
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [career, setCareer] = useState("");
-  const [entryYear, setEntryYear] = useState("");
+  const [name, setName] = useState(draft?.name ?? "");
+  const [career, setCareer] = useState(draft?.career ?? "");
+  const [entryYear, setEntryYear] = useState(draft?.entryYear ?? "");
   // USUARIO.terminos_aceptados_en: sin aceptar los términos no se puede crear la cuenta
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState(notice);
@@ -80,7 +81,8 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) 
         onLoggedIn(await login(typedEmail, password));
       } else {
         await register({ email: typedEmail, password, name, career, entryYear, acceptedTerms });
-        onNeedsVerification(typedEmail);
+        // Se guardan los datos (sin la contraseña) por si hay que corregir el correo
+        onNeedsVerification(typedEmail, { name, career, entryYear });
       }
     } catch (err) {
       // 403: la cuenta existe pero aún no verifica el correo
@@ -153,6 +155,7 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) 
                 type="email"
                 placeholder="nombre@uc.cl"
                 autoComplete="email"
+                autoFocus={Boolean(draft)}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />

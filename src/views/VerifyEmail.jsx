@@ -6,7 +6,9 @@ import Icon from "../components/Icon";
 
 // Pantalla después de crear la cuenta (o de intentar entrar sin verificar): pide abrir el enlace
 // que llegó al correo. El enlace abre Coestudia con ?verificar=<token> y App inicia la sesión.
-export default function VerifyEmail({ email, onBackToLogin, onChangeEmail }) {
+// fromRegister: recién creó la cuenta (corregir el correo vuelve al registro con sus datos);
+// si no, intentó iniciar sesión sin verificar (vuelve al inicio de sesión).
+export default function VerifyEmail({ email, fromRegister = false, onBackToLogin, onChangeEmail }) {
   const [resent, setResent] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -84,7 +86,7 @@ export default function VerifyEmail({ email, onBackToLogin, onChangeEmail }) {
           <p className="muted center small">
             ¿Te equivocaste de correo?{" "}
             <button type="button" className="link-btn" onClick={onChangeEmail}>
-              Usar otro correo
+              {fromRegister ? "Corregir el correo" : "Usar otro correo"}
             </button>
           </p>
         </div>
