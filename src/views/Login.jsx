@@ -45,9 +45,7 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) 
     if (!PASSWORD_RULES.every((rule) => rule.test(password))) {
       return "La contraseña debe cumplir todos los requisitos.";
     }
-    if (new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES) {
-      return "La contraseña es demasiado larga.";
-    }
+    if (passwordTooLong()) return "La contraseña es demasiado larga.";
     const year = Number(entryYear);
     if (year < MIN_ENTRY_YEAR || year > CURRENT_YEAR) {
       return `El año de ingreso debe estar entre ${MIN_ENTRY_YEAR} y ${CURRENT_YEAR}.`;
@@ -56,8 +54,13 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "" }) 
     return "";
   };
 
-  const loginError = () =>
-    !email.trim() || !password ? "Ingresa tu correo y tu contraseña." : "";
+  const passwordTooLong = () => new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES;
+
+  const loginError = () => {
+    if (!email.trim() || !password) return "Ingresa tu correo y tu contraseña.";
+    if (passwordTooLong()) return "La contraseña es demasiado larga.";
+    return "";
+  };
 
   const switchMode = (next) => {
     setMode(next);

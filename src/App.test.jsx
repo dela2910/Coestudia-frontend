@@ -224,6 +224,15 @@ describe("Inicio de sesión y verificación", () => {
     expect(getToken()).toBeNull();
   });
 
+  it("no envía contraseñas de más de 72 caracteres", () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fillLogin(apiUser.email, "x".repeat(100));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("demasiado larga");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/api/auth/login"))).toBe(false);
+  });
+
   it("pide verificar el correo si la cuenta no está verificada y permite reenviarlo", async () => {
     const fetchMock = mockApi({
       "POST /api/auth/login": () => [403, { detail: "Debes verificar tu correo." }],
