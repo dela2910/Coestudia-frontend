@@ -1,4 +1,4 @@
-import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import { modalityLabel, scheduleLabel } from "../data/mock";
 import Icon from "./Icon";
 import { CapacityBar, StatusBadge } from "./ui";
 
@@ -13,12 +13,12 @@ export default function GroupCard({ group, onOpen, footer, ctaLabel = "Ver detal
         </div>
         <div className="meta">
           <span className="meta-item">
-            <Icon name={group.modality === "online" ? "monitor" : "mapPin"} size={16} />
-            {modalityLabel(group.modality)}
+            <Icon name={group.isOnline ? "monitor" : "mapPin"} size={16} />
+            {modalityLabel(group.isOnline)}
           </span>
           <span className="meta-item">
             <Icon name="calendar" size={16} />
-            {dayLabel(group.day)} · {blockLabel(group.block)}
+            {scheduleLabel(group.schedule)}
           </span>
         </div>
         <CapacityBar members={group.members} capacity={group.capacity} />

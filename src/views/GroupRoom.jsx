@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { askAssistant } from "../api/assistant";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
-import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
 // Espacio interno de un grupo: asistente de estudio (chatbot) a la izquierda y
 // archivos compartidos a la derecha. El asistente responde usando esos archivos.
@@ -116,12 +116,12 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
           <h1>{group.subject}</h1>
           <div className="meta">
             <span className="meta-item">
-              <Icon name={group.modality === "online" ? "monitor" : "mapPin"} size={16} />
-              {modalityLabel(group.modality)} · {group.place}
+              <Icon name={group.isOnline ? "monitor" : "mapPin"} size={16} />
+              {modalityLabel(group.isOnline)} · {meetingPoint(group)}
             </span>
             <span className="meta-item">
               <Icon name="calendar" size={16} />
-              {dayLabel(group.day)} · {blockLabel(group.block)}
+              {scheduleLabel(group.schedule)}
             </span>
           </div>
         </div>

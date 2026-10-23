@@ -14,6 +14,8 @@ export default function Login({ onLogin }) {
   const [name, setName] = useState("");
   const [career, setCareer] = useState("");
   const [entryYear, setEntryYear] = useState("");
+  // USUARIO.terminos_aceptados_en: sin aceptar los términos no se puede crear la cuenta
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [error, setError] = useState("");
   const isLogin = mode === "login";
   const university = universityFromEmail(email);
@@ -28,6 +30,7 @@ export default function Login({ onLogin }) {
     if (year < MIN_ENTRY_YEAR || year > CURRENT_YEAR) {
       return `El año de ingreso debe estar entre ${MIN_ENTRY_YEAR} y ${CURRENT_YEAR}.`;
     }
+    if (!acceptedTerms) return "Debes aceptar los términos y condiciones.";
     return "";
   };
 
@@ -168,6 +171,20 @@ export default function Login({ onLogin }) {
               </button>
             </div>
           </label>
+
+          {!isLogin && (
+            <label className="checkbox-field">
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+              />
+              <span>
+                Acepto los términos y condiciones y que mis datos se usen solo para coordinar
+                grupos de estudio (Ley 19.628).
+              </span>
+            </label>
+          )}
 
           {isLogin && (
             <button type="button" className="link-btn align-end">

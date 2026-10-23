@@ -37,10 +37,16 @@ push a `main`.
 ```
 src/
 ├── api/
-│   └── client.js      # getHello() y URL base del backend
+│   ├── client.js      # request() base, token de sesión y URL del backend
+│   └── assistant.js   # asistente IA (simulado)
+├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
+├── data/
+│   ├── mock.js        # datos de ejemplo con la forma del modelo de datos
+│   └── filters.js     # filtro del buscador
+├── views/             # una vista por pantalla (Login, Home, Results, CreateGroup…)
 ├── test/
 │   └── setup.js       # configuración de Vitest + jest-dom
-├── App.jsx            # llama a la API y muestra los 3 estados
+├── App.jsx            # navegación entre vistas
 ├── App.test.jsx
 ├── App.css
 ├── index.css
@@ -49,6 +55,24 @@ src/
 ├── ci.yml             # lint → test → build
 └── release.yml        # tag v* → release en GitHub → deploy a Vercel
 ```
+
+## Conectar una vista a la API
+
+Las vistas todavía usan los datos de `src/data/mock.js`. Cada tarea conecta su vista al backend:
+
+1. Agrega la función del endpoint en `src/api/` usando `request()`, que ya envía JSON, agrega el
+   token de sesión y lanza `ApiError` con el mensaje (`detail`) de FastAPI:
+
+   ```js
+   export const searchGroups = (params) => request(`/api/grupos?${new URLSearchParams(params)}`);
+   ```
+
+2. En la vista, reemplaza el dato de `mock.js` por la llamada y muestra los estados de carga y
+   error.
+
+Los datos de ejemplo ya tienen la forma del modelo: `isOnline` (es_online), `schedule` con
+`{ day, isMorning }` (horario_grupo: día 0 = lunes … 5 = sábado), `place` o `link`, y
+`validUntil` (vigente_hasta).
 
 ## Variables de entorno
 

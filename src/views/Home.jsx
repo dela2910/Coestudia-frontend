@@ -6,18 +6,18 @@ import { findSubject } from "../data/subjects";
 
 export default function Home({ user, initialFilters, onSearch, onCreate }) {
   const [query, setQuery] = useState(initialFilters.query);
-  const [modality, setModality] = useState(initialFilters.modality);
+  const [isOnline, setIsOnline] = useState(initialFilters.isOnline);
   const [days, setDays] = useState(initialFilters.days);
   const [blocks, setBlocks] = useState(initialFilters.blocks);
 
   const firstName = user.name.split(" ")[0];
-  const hasFilters = modality || days.length > 0 || blocks.length > 0;
+  const hasFilters = isOnline !== null || days.length > 0 || blocks.length > 0;
 
   const search = (overrideQuery) =>
-    onSearch({ query: overrideQuery ?? query, modality, days, blocks });
+    onSearch({ query: overrideQuery ?? query, isOnline, days, blocks });
 
   const clearFilters = () => {
-    setModality(null);
+    setIsOnline(null);
     setDays([]);
     setBlocks([]);
   };
@@ -56,8 +56,8 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
             <ToggleGroup
               label="Modalidad"
               options={MODALITIES}
-              value={modality}
-              onChange={setModality}
+              value={isOnline}
+              onChange={setIsOnline}
             />
           </div>
           <div className="filter">

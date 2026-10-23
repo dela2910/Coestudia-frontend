@@ -11,7 +11,7 @@ import Results from "./views/Results";
 import VerifyEmail from "./views/VerifyEmail";
 import "./App.css";
 
-const EMPTY_FILTERS = { query: "", modality: null, days: [], blocks: [] };
+const EMPTY_FILTERS = { query: "", isOnline: null, days: [], blocks: [] };
 
 function App() {
   // authStep: "login" | "verify" (verificar correo) | "done"
