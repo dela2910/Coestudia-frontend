@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { getToken, setToken } from "./api/client";
@@ -37,7 +37,11 @@ const apiGroups = [
 // Búsqueda simulada: filtra por el texto de ?q= (el backend también ignora tildes)
 const searchRoute = (options, url) => {
   const q = (new URL(url).searchParams.get("q") ?? "").toLowerCase();
-  const plain = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const plain = (text) =>
+    text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
   const matches = (g) =>
     plain(g.asignatura.nombre).includes(plain(q)) || g.asignatura.sigla.toLowerCase().includes(q);
   return [200, apiGroups.filter(matches)];
@@ -51,6 +55,8 @@ const DEFAULT_ROUTES = {
   "POST /api/auth/reenviar-verificacion": () => [202, { message: "ok" }],
   "GET /api/auth/me": () => [200, apiUser],
   "GET /api/grupos": searchRoute,
+  "GET /api/perfil/asignaturas": () => [200, []],
+  "GET /api/asignaturas": () => [200, []],
 };
 
 // Simula el backend: cada ruta "MÉTODO /ruta" responde [status, json]. Devuelve el mock de fetch.
@@ -238,7 +244,10 @@ describe("Registro", () => {
     mockApi();
     openRegister();
     const rules = screen.getByRole("list", { name: "Requisitos de la contraseña" });
-    const ok = () => within(rules).getAllByRole("listitem").filter((li) => li.className === "rule-ok");
+    const ok = () =>
+      within(rules)
+        .getAllByRole("listitem")
+        .filter((li) => li.className === "rule-ok");
 
     expect(ok()).toHaveLength(0);
     fill("Contraseña", "abc");
@@ -464,20 +473,71 @@ describe("Crear grupo", () => {
 });
 
 describe("Perfil", () => {
-  beforeEach(() => {
-    mockApi();
+  const calculo = { id: 1, sigla: "MAT1620", nombre: "Cálculo II" };
+  const fisica = { id: 2, sigla: "FIS1513", nombre: "Física I" };
+  const software = { id: 3, sigla: "IIC2143", nombre: "Ingeniería de Software" };
+
+  // Backend simulado con «mis asignaturas» y el catálogo de la universidad
+  const profileApi = (routes = {}) => {
+    let mine = [calculo, fisica];
+    const catalog = [calculo, fisica, software];
+    return mockApi({
+      "GET /api/perfil/asignaturas": () => [200, mine],
+      "GET /api/asignaturas": () => [200, catalog],
+      "POST /api/perfil/asignaturas": (options) => {
+        const { sigla, nombre } = JSON.parse(options.body);
+        let subject = catalog.find((s) => s.sigla === sigla);
+        if (!subject && !nombre) return [404, { detail: `${sigla} aún no está en Coestudia.` }];
+        if (!subject) {
+          subject = { id: catalog.length + 1, sigla, nombre };
+          catalog.push(subject);
+        }
+        mine = [...mine, subject];
+        return [201, subject];
+      },
+      "DELETE /api/perfil/asignaturas/1": () => {
+        mine = mine.filter((s) => s.id !== 1);
+        return [204, null];
+      },
+      "PUT /api/perfil": (options) => [200, { ...apiUser, ...JSON.parse(options.body) }],
+      ...routes,
+    });
+  };
+
+  const openProfile = async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    await screen.findByText("MAT1620 · Cálculo II");
+  };
+
+  const calls = (fetchMock, method, path) =>
+    fetchMock.mock.calls.filter(
+      ([url, options = {}]) => (options.method ?? "GET") === method && url.endsWith(path),
+    );
+
+  it("muestra las asignaturas del usuario en el inicio y en el perfil", async () => {
+    profileApi();
+    await login();
+
+    expect(await screen.findByRole("button", { name: /Cálculo II/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    expect(screen.getByText(/Ingreso 2023/)).toBeInTheDocument();
+    expect(screen.getByText("FIS1513 · Física I")).toBeInTheDocument();
   });
 
   it("agrega asignaturas por sigla y crea las que no existen", async () => {
-    await login();
-    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
-    expect(screen.getByText(/Ingreso 2023/)).toBeInTheDocument();
-    expect(screen.getByText("MAT1620 · Cálculo II")).toBeInTheDocument();
+    const fetchMock = profileApi();
+    await openProfile();
 
     const code = screen.getByLabelText("Sigla de la asignatura");
-    fireEvent.change(code, { target: { value: "iic2143" } });
+    fireEvent.change(code, { target: { value: "iic 2143" } });
+    // Está en el catálogo: no pide el nombre
+    expect(screen.queryByLabelText("Nombre del ramo")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
-    expect(screen.getByText("IIC2143 · Ingeniería de Software")).toBeInTheDocument();
+    expect(await screen.findByText("IIC2143 · Ingeniería de Software")).toBeInTheDocument();
+    expect(JSON.parse(calls(fetchMock, "POST", "/api/perfil/asignaturas")[0][1].body)).toEqual({
+      sigla: "IIC2143",
+    });
 
     fireEvent.change(code, { target: { value: "IIC2233" } });
     expect(screen.getByRole("button", { name: "Agregar" })).toBeDisabled();
@@ -485,7 +545,62 @@ describe("Perfil", () => {
       target: { value: "Programación Avanzada" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
-    expect(screen.getByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
+    expect(await screen.findByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
+    expect(JSON.parse(calls(fetchMock, "POST", "/api/perfil/asignaturas")[1][1].body)).toEqual({
+      sigla: "IIC2233",
+      nombre: "Programación Avanzada",
+    });
+  });
+
+  it("quita una asignatura", async () => {
+    const fetchMock = profileApi();
+    await openProfile();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quitar MAT1620" }));
+
+    await waitFor(() => expect(screen.queryByText("MAT1620 · Cálculo II")).not.toBeInTheDocument());
+    expect(calls(fetchMock, "DELETE", "/api/perfil/asignaturas/1")).toHaveLength(1);
+  });
+
+  it("muestra el error del backend al agregar", async () => {
+    profileApi({
+      "POST /api/perfil/asignaturas": () => [
+        400,
+        { detail: "Puedes tener como máximo 10 asignaturas." },
+      ],
+    });
+    await openProfile();
+
+    fireEvent.change(screen.getByLabelText("Sigla de la asignatura"), {
+      target: { value: "IIC2143" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("como máximo 10 asignaturas");
+  });
+
+  it("edita la carrera y el año de ingreso", async () => {
+    const fetchMock = profileApi();
+    await openProfile();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar perfil" }));
+    fireEvent.change(screen.getByLabelText("Carrera"), { target: { value: "Física" } });
+    fireEvent.change(screen.getByLabelText("Año de ingreso"), { target: { value: "1980" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("El año de ingreso debe estar entre");
+    expect(calls(fetchMock, "PUT", "/api/perfil")).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("Año de ingreso"), { target: { value: "2024" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(await screen.findByText(/Física · Ingreso 2024/)).toBeInTheDocument();
+    expect(JSON.parse(calls(fetchMock, "PUT", "/api/perfil")[0][1].body)).toEqual({
+      nombre: "Benjamín Soto",
+      carrera: "Física",
+      anio_ingreso: 2024,
+    });
+    // Las asignaturas se mantienen después de guardar
+    expect(screen.getByText("MAT1620 · Cálculo II")).toBeInTheDocument();
   });
 });
 
@@ -518,7 +633,9 @@ describe("Espacio del grupo", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
-    expect(await screen.findByText(/Aquí va un resumen de los 2 archivos/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Aquí va un resumen de los 2 archivos/, {}, { timeout: 2000 }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Fuentes:")).toBeInTheDocument();
 
     const file = new File(["apuntes"], "Apuntes clase 5.pdf", { type: "application/pdf" });
