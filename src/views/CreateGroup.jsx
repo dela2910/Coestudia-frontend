@@ -52,9 +52,8 @@ export default function CreateGroup({ user, onDone }) {
     blocks.length > 0 &&
     validUntil >= tomorrow;
   // Los ramos del usuario aparecen primero en el autocompletado.
-  const options = [...subjects].sort(
-    (a, b) => user.subjects.includes(b.code) - user.subjects.includes(a.code),
-  );
+  const isMine = (subject) => user.subjects.some((s) => s.code === subject.code);
+  const options = [...subjects].sort((a, b) => isMine(b) - isMine(a));
 
   if (published) {
     return (

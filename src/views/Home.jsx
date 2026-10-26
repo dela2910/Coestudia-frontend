@@ -1,8 +1,7 @@
 import { useState } from "react";
 import Icon from "../components/Icon";
 import { ToggleGroup } from "../components/ui";
-import { BLOCKS, DAYS, MODALITIES, subjects } from "../data/mock";
-import { findSubject } from "../data/subjects";
+import { BLOCKS, DAYS, MODALITIES } from "../data/mock";
 
 export default function Home({ user, initialFilters, onSearch, onCreate }) {
   const [query, setQuery] = useState(initialFilters.query);
@@ -85,9 +84,13 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
 
       <section className="section">
         <h2 className="section-title">Tus ramos</h2>
-        <p className="muted small">Toca uno para ver sus grupos al tiro.</p>
+        <p className="muted small">
+          {user.subjects.length > 0
+            ? "Toca uno para ver sus grupos al tiro."
+            : "Agrega las asignaturas que cursas en Mis grupos y aparecerán aquí."}
+        </p>
         <div className="subject-grid">
-          {user.subjects.map((code) => (
+          {user.subjects.map(({ code, name }) => (
             <button
               key={code}
               type="button"
@@ -101,7 +104,7 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
                 <Icon name="book" size={18} />
               </span>
               <span className="subject-tile-text">
-                <span>{findSubject(subjects, code)?.name ?? code}</span>
+                <span>{name}</span>
                 <span className="subject-code">{code}</span>
               </span>
               <Icon name="chevronRight" size={18} className="subject-arrow" />
