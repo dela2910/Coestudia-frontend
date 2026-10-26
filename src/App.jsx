@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { getMe, logout, verifyEmail } from "./api/auth";
 import { errorMessage, getToken, onSessionExpired } from "./api/client";
+import { getMySubjects } from "./api/profile";
 import Navbar from "./components/Navbar";
-import { currentUser, groupFiles, groups, myGroups } from "./data/mock";
+import { groupFiles, groups, myGroups } from "./data/mock";
 import CreateGroup from "./views/CreateGroup";
 import GroupDetail from "./views/GroupDetail";
 import GroupRoom from "./views/GroupRoom";
@@ -17,9 +18,6 @@ const EMPTY_FILTERS = { query: "", isOnline: null, days: [], blocks: [] };
 
 // Token del enlace de verificación que llega por correo: <frontend>/?verificar=<token>
 const verificationToken = () => new URLSearchParams(window.location.search).get("verificar");
-
-// Las asignaturas del perfil todavía salen de los datos de ejemplo (se conectan en B03).
-const withMockSubjects = (user) => ({ ...user, subjects: currentUser.subjects });
 
 function App() {
   // authStep: "loading" (revisando la sesión) | "login" | "verify" (verificar correo) | "done"
@@ -59,10 +57,19 @@ function App() {
     navigate("room");
   };
 
+  // Cambios del usuario (perfil o asignaturas) sin perder lo demás
+  const updateUser = (changes) => setUser((prev) => prev && { ...prev, ...changes });
+
   const enter = (loggedUser) => {
-    setUser(withMockSubjects(loggedUser));
+    // subjects: «mis asignaturas» [{ id, code, name }]; llegan del backend después de entrar
+    setUser({ ...loggedUser, subjects: [] });
     setAuthStep("done");
     setView("home");
+    getMySubjects()
+      .then((subjects) => updateUser({ subjects }))
+      .catch(() => {
+        // Sin asignaturas la app igual funciona; el perfil permite reintentar agregándolas
+      });
   };
 
   // draft: si viene, se abre "Crear cuenta" con esos datos ya llenos
@@ -198,6 +205,7 @@ function App() {
             myGroups={myGroups}
             onOpen={openRoom}
             onCreate={() => navigate("create")}
+            onUpdateUser={updateUser}
             onLogout={signOut}
           />
         )}

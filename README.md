@@ -41,6 +41,7 @@ src/
 │   ├── client.js      # request() base, token de sesión y URL del backend
 │   ├── auth.js        # registro, verificación del correo, login y sesión
 │   ├── groups.js      # buscar y filtrar grupos
+│   ├── profile.js     # editar el perfil y «mis asignaturas»
 │   └── assistant.js   # asistente IA (simulado)
 ├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
 ├── data/
