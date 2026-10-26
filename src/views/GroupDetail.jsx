@@ -1,10 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { errorMessage } from "../api/client";
+import { getGroup } from "../api/groups";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, CapacityBar, StatusBadge } from "../components/ui";
-import { formatDate, modalityLabel, scheduleLabel } from "../data/mock";
+import { formatDate, meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
-export default function GroupDetail({ group, isMember = false, onEnter, onBack }) {
+// summary: el grupo como viene del buscador. Mientras llega el detalle (integrantes, creador y,
+// si eres integrante, el lugar o enlace) se muestran esos datos.
+export default function GroupDetail({ group: summary, onEnter, onBack }) {
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState("");
   const [requested, setRequested] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getGroup(summary.id)
+      .then((group) => active && setDetail(group))
+      .catch((err) => active && setError(errorMessage(err)));
+    return () => {
+      active = false;
+    };
+  }, [summary.id]);
+
+  const group = detail ?? summary;
+  const isMember = detail?.isMember ?? false;
   // isOpen viene del buscador; los grupos de ejemplo no lo traen
   const closed = group.isOpen === false;
   const full = group.members >= group.capacity;
@@ -17,7 +36,7 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
       <article className="card detail">
         <header className="detail-head">
           <div>
-            <span className="eyebrow">Grupo de estudio</span>
+            <span className="eyebrow">Grupo de estudio · {group.code}</span>
             <h1>{group.subject}</h1>
           </div>
           <StatusBadge members={group.members} capacity={group.capacity} open={!closed} />
@@ -38,6 +57,21 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
               <span>{scheduleLabel(group.schedule)}</span>
             </div>
           </div>
+          {isMember && meetingPoint(group) && (
+            <div className="info">
+              <Icon name={group.isOnline ? "monitor" : "mapPin"} size={20} />
+              <div>
+                <span className="info-label">{group.isOnline ? "Enlace" : "Lugar"}</span>
+                {group.isOnline ? (
+                  <a href={group.link} target="_blank" rel="noreferrer">
+                    {group.link}
+                  </a>
+                ) : (
+                  <span>{group.place}</span>
+                )}
+              </div>
+            </div>
+          )}
           <div className="info">
             <Icon name="clock" size={20} />
             <div>
@@ -49,7 +83,7 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
 
         <section>
           <h2 className="section-title">Descripción</h2>
-          <p>{group.description}</p>
+          <p>{group.description || "El creador no agregó una descripción."}</p>
         </section>
 
         <section>
@@ -58,35 +92,49 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
               Integrantes ({group.members}/{group.capacity})
             </h2>
             <span className="muted small">
-              {full ? "Sin cupos" : `${freeSpots} ${freeSpots === 1 ? "cupo libre" : "cupos libres"}`}
+              {full
+                ? "Sin cupos"
+                : `${freeSpots} ${freeSpots === 1 ? "cupo libre" : "cupos libres"}`}
             </span>
           </div>
           <CapacityBar members={group.members} capacity={group.capacity} />
-          {/* Los integrantes los trae el detalle del grupo (B07); el buscador no los incluye */}
-          {group.integrants && (
+          {/* Los integrantes los trae el detalle del grupo; el buscador no los incluye */}
+          {error ? (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          ) : detail ? (
             <ul className="member-list">
-              {group.integrants.map((m) => (
-                <li key={m.name} className="member">
+              {detail.integrants.map((m) => (
+                <li key={m.id} className="member">
                   <Avatar name={m.name} />
                   <div>
                     <strong>{m.name}</strong>
                     <span className="muted small">{m.career}</span>
                   </div>
-                  {m.name === group.owner && <span className="badge badge-soft">Creador</span>}
+                  {m.isOwner && <span className="badge badge-soft">Creador</span>}
                 </li>
               ))}
             </ul>
+          ) : (
+            <p className="muted small" role="status">
+              Cargando integrantes…
+            </p>
           )}
         </section>
 
         <div className="detail-actions">
           {isMember ? (
-            <button type="button" className="btn btn-primary btn-lg btn-block" onClick={onEnter}>
+            <button
+              type="button"
+              className="btn btn-primary btn-lg btn-block"
+              onClick={() => onEnter(detail)}
+            >
               <Icon name="chat" size={18} /> Abrir grupo
             </button>
-          ) : full || closed ? (
+          ) : error || full || closed ? (
             <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
-              {full ? "Grupo completo" : "Grupo cerrado"}
+              {error ? "No disponible" : full ? "Grupo completo" : "Grupo cerrado"}
             </button>
           ) : requested ? (
             <div className="request-sent">
@@ -110,7 +158,8 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
           {isMember ? (
             <p className="notice">
               <Icon name="users" size={16} />
-              Ya eres integrante: dentro del grupo puedes compartir archivos y consultarlos con el asistente de estudio.
+              Ya eres integrante: dentro del grupo puedes compartir archivos y consultarlos con el
+              asistente de estudio.
             </p>
           ) : (
             <p className="notice">

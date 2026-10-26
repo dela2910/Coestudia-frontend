@@ -1,6 +1,6 @@
 import { request } from "./client";
 
-// Grupos de estudio. Buscar y filtrar (B06): GET /api/grupos del backend.
+// Grupos de estudio. Buscar y filtrar (B06): GET /api/grupos. Detalle (B07): GET /api/grupos/{id}.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -27,3 +27,21 @@ export async function searchGroups({ query, isOnline, days, blocks }) {
   const grupos = await request(`/api/grupos${qs ? `?${qs}` : ""}`);
   return grupos.map(toGroup);
 }
+
+// Detalle: lo del buscador más el creador y los integrantes. place y link llegan solo si el
+// usuario es integrante.
+export const toGroupDetail = (grupo) => ({
+  ...toGroup(grupo),
+  owner: grupo.creador,
+  integrants: grupo.integrantes.map((m) => ({
+    id: m.id,
+    name: m.nombre,
+    career: m.carrera ?? "",
+    isOwner: m.es_creador,
+  })),
+  isMember: grupo.es_miembro,
+  place: grupo.lugar,
+  link: grupo.enlace,
+});
+
+export const getGroup = async (id) => toGroupDetail(await request(`/api/grupos/${id}`));

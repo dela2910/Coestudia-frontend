@@ -34,6 +34,20 @@ const apiGroups = [
   apiGroup(13, "MAT1620", "Cálculo II", { miembros: 2, abierto: false }),
 ];
 
+// Detalle tal como lo devuelve GET /api/grupos/{id}: el usuario no es integrante
+const apiDetail = (group, fields = {}) => ({
+  ...group,
+  creador: "Ana Rojas",
+  integrantes: [
+    { id: 7, nombre: "Ana Rojas", carrera: "Ingeniería Civil", es_creador: true },
+    { id: 8, nombre: "Luis Castro", carrera: "Ingeniería Comercial", es_creador: false },
+  ],
+  es_miembro: false,
+  lugar: null,
+  enlace: null,
+  ...fields,
+});
+
 // Búsqueda simulada: filtra por el texto de ?q= (el backend también ignora tildes)
 const searchRoute = (options, url) => {
   const q = (new URL(url).searchParams.get("q") ?? "").toLowerCase();
@@ -55,6 +69,9 @@ const DEFAULT_ROUTES = {
   "POST /api/auth/reenviar-verificacion": () => [202, { message: "ok" }],
   "GET /api/auth/me": () => [200, apiUser],
   "GET /api/grupos": searchRoute,
+  ...Object.fromEntries(
+    apiGroups.map((g) => [`GET /api/grupos/${g.id}`, () => [200, apiDetail(g)]]),
+  ),
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
 };
@@ -645,6 +662,59 @@ describe("Espacio del grupo", () => {
     expect(within(files).getByText("Apuntes clase 5.pdf")).toBeInTheDocument();
     expect(screen.getByText(/leí "Apuntes clase 5.pdf"/)).toBeInTheDocument();
     expect(screen.getByText("Usando 3 archivos")).toBeInTheDocument();
+  });
+});
+
+describe("Detalle del grupo", () => {
+  const openFirstResult = async () => {
+    await login();
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: "calculo" } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Encontramos 2 grupos");
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[0]);
+  };
+
+  it("muestra los integrantes y al creador, sin el lugar si no eres integrante", async () => {
+    mockApi();
+    await openFirstResult();
+
+    expect(screen.getByText("Cargando integrantes…")).toBeInTheDocument();
+    expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
+    const owner = screen.getByText("Ana Rojas").closest("li");
+    expect(within(owner).getByText("Creador")).toBeInTheDocument();
+    expect(screen.getByText("Grupo de estudio · MAT1620")).toBeInTheDocument();
+    expect(screen.queryByText("Lugar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Solicitar ingreso" })).toBeEnabled();
+  });
+
+  it("si eres integrante muestra el lugar y permite abrir el grupo", async () => {
+    mockApi({
+      "GET /api/grupos/11": () => [
+        200,
+        apiDetail(apiGroups[0], { es_miembro: true, lugar: "Biblioteca central, sala 2" }),
+      ],
+    });
+    await openFirstResult();
+
+    expect(await screen.findByText("Biblioteca central, sala 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Solicitar ingreso" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Abrir grupo/ }));
+    expect(screen.getByRole("heading", { name: "Cálculo II" })).toBeInTheDocument();
+    expect(screen.getByLabelText("2 integrantes")).toBeInTheDocument();
+  });
+
+  it("avisa si el grupo ya no está disponible", async () => {
+    mockApi({
+      "GET /api/grupos/11": () => [
+        404,
+        { detail: "Este grupo no existe o ya no está disponible." },
+      ],
+    });
+    await openFirstResult();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya no está disponible");
+    expect(screen.getByRole("button", { name: "No disponible" })).toBeDisabled();
   });
 });
 

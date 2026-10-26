@@ -36,7 +36,8 @@ function App() {
   const [view, setView] = useState("home");
   const [previousView, setPreviousView] = useState("home");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  // Grupo abierto en el detalle o en su espacio. Viene del buscador (API) o de "Mis grupos" (mock)
+  // Grupo abierto en el detalle o en su espacio. El detalle se abre desde el buscador (API); el
+  // espacio, desde el detalle o desde "Mis grupos" (todavía de ejemplo, B09)
   const [selectedGroup, setSelectedGroup] = useState(null);
 
   const navigate = (next) => {
@@ -116,12 +117,6 @@ function App() {
     showLogin();
   };
 
-  // La membresía real llega con B08/B09; por ahora solo los grupos de ejemplo tienen integrantes
-  const isMember = (group) =>
-    groups.includes(group) &&
-    (myGroups.participating.includes(group.id) ||
-      myGroups.created.some((c) => c.groupId === group.id));
-
   if (authStep === "loading") {
     return (
       <div className="auth-loading" role="status">
@@ -183,9 +178,12 @@ function App() {
         {view === "create" && <CreateGroup user={user} onDone={() => navigate("profile")} />}
         {view === "detail" && selectedGroup && (
           <GroupDetail
+            key={selectedGroup.id}
             group={selectedGroup}
-            isMember={isMember(selectedGroup)}
-            onEnter={() => openRoom(selectedGroup.id)}
+            onEnter={(detail) => {
+              setSelectedGroup(detail);
+              navigate("room");
+            }}
             onBack={() => navigate(previousView)}
           />
         )}
@@ -194,7 +192,8 @@ function App() {
             key={selectedGroup.id}
             group={selectedGroup}
             user={user}
-            initialFiles={groupFiles[selectedGroup.id]}
+            // Los archivos todavía son de ejemplo (B12): solo los grupos de ejemplo traen
+            initialFiles={groups.includes(selectedGroup) ? groupFiles[selectedGroup.id] : []}
             onBack={() => navigate("profile")}
           />
         )}
