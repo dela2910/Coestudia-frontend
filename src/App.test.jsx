@@ -421,9 +421,33 @@ describe("Inicio de sesión y verificación", () => {
 });
 
 describe("Crear grupo", () => {
-  beforeEach(() => {
-    mockApi();
+  // Grupo que devuelve POST /api/grupos: el creador queda como integrante
+  const created = apiDetail(apiGroup(21, "MAT1620", "Cálculo II", { miembros: 1 }), {
+    creador: "Benjamín Soto",
+    integrantes: [
+      { id: 1, nombre: "Benjamín Soto", carrera: "Ingeniería Civil Informática", es_creador: true },
+    ],
+    es_miembro: true,
+    lugar: "Biblioteca",
   });
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = mockApi({
+      "GET /api/asignaturas": () => [200, [{ id: 1, sigla: "MAT1620", nombre: "Cálculo II" }]],
+      "POST /api/grupos": () => [201, created],
+      "GET /api/grupos/21": () => [200, created],
+    });
+  });
+
+  // Cuerpo del último POST /api/grupos
+  const sentGroup = () => {
+    const posts = fetchMock.mock.calls.filter(
+      ([url, options]) => options?.method === "POST" && new URL(url).pathname === "/api/grupos",
+    );
+    expect(posts).not.toHaveLength(0);
+    return JSON.parse(posts.at(-1)[1].body);
+  };
 
   const openCreate = async () => {
     await login();
@@ -438,7 +462,7 @@ describe("Crear grupo", () => {
     fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
       target: { value: "mat 1620" },
     });
-    expect(screen.getAllByText("Cálculo II").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Cálculo II")).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText(/Nombre del ramo/)).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Lun" }));
@@ -451,7 +475,43 @@ describe("Crear grupo", () => {
     setValidUntil("2099-12-01");
     expect(publish()).toBeEnabled();
     fireEvent.click(publish());
-    expect(screen.getByText(/Tu grupo de Cálculo II ya está visible/)).toBeInTheDocument();
+    expect(await screen.findByText(/Tu grupo de Cálculo II ya está visible/)).toBeInTheDocument();
+    expect(sentGroup()).toEqual({
+      sigla: "MAT1620",
+      descripcion: null,
+      es_online: false,
+      lugar: "Biblioteca",
+      enlace: null,
+      cupo_maximo: 4,
+      vigente_hasta: "2099-12-01",
+      horarios: [{ dia_semana: 0, es_manana: false }],
+    });
+
+    // "Ver mi grupo" abre el detalle, donde ya aparece como integrante
+    fireEvent.click(screen.getByRole("button", { name: "Ver mi grupo" }));
+    expect(await screen.findByText("Biblioteca")).toBeInTheDocument();
+  });
+
+  it("muestra el error del backend y permite reintentar", async () => {
+    mockApi({
+      "GET /api/asignaturas": () => [200, [{ id: 1, sigla: "MAT1620", nombre: "Cálculo II" }]],
+      "POST /api/grupos": () => [422, { detail: "La fecha de vigencia debe ser posterior a hoy." }],
+    });
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "MAT1620" },
+    });
+    await screen.findAllByText("Cálculo II");
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    setValidUntil("2099-12-01");
+    fireEvent.click(publish());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La fecha de vigencia debe ser posterior a hoy.",
+    );
+    expect(publish()).toBeEnabled();
   });
 
   it("pide el nombre del ramo si la sigla es nueva y el enlace si es online", async () => {
@@ -473,6 +533,17 @@ describe("Crear grupo", () => {
     setValidUntil("2099-12-01");
     expect(screen.getByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
     expect(publish()).toBeEnabled();
+
+    fireEvent.click(publish());
+    await screen.findByText(/ya está visible/);
+    expect(sentGroup()).toMatchObject({
+      sigla: "IIC2233",
+      nombre_asignatura: "Programación Avanzada",
+      es_online: true,
+      lugar: null,
+      enlace: "https://meet.google.com/abc",
+      horarios: [{ dia_semana: 1, es_manana: true }],
+    });
   });
 
   it("no acepta una fecha de vigencia pasada", async () => {

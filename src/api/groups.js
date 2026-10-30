@@ -1,6 +1,7 @@
 import { request } from "./client";
 
 // Grupos de estudio. Buscar y filtrar (B06): GET /api/grupos. Detalle (B07): GET /api/grupos/{id}.
+// Crear: POST /api/grupos.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -45,3 +46,36 @@ export const toGroupDetail = (grupo) => ({
 });
 
 export const getGroup = async (id) => toGroupDetail(await request(`/api/grupos/${id}`));
+
+// Crear grupo: POST /api/grupos. Se guarda cada combinación de los días y bloques elegidos.
+// subjectName solo se usa si la sigla aún no existe (el backend crea la asignatura).
+export const createGroup = async ({
+  code,
+  subjectName,
+  description,
+  isOnline,
+  place,
+  link,
+  days,
+  blocks,
+  capacity,
+  validUntil,
+}) =>
+  toGroupDetail(
+    await request("/api/grupos", {
+      method: "POST",
+      body: {
+        sigla: code,
+        ...(subjectName ? { nombre_asignatura: subjectName } : {}),
+        descripcion: description.trim() || null,
+        es_online: isOnline,
+        lugar: isOnline ? null : place.trim(),
+        enlace: isOnline ? link.trim() : null,
+        cupo_maximo: capacity,
+        vigente_hasta: validUntil,
+        horarios: days.flatMap((day) =>
+          blocks.map((isMorning) => ({ dia_semana: day, es_manana: isMorning })),
+        ),
+      },
+    }),
+  );

@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { errorMessage } from "../api/client";
+import { createGroup } from "../api/groups";
+import { getSubjectCatalog } from "../api/profile";
 import Icon from "../components/Icon";
 import { CapacityBar, EmptyState, ToggleGroup } from "../components/ui";
 import {
@@ -9,7 +12,6 @@ import {
   dayLabel,
   formatDate,
   modalityLabel,
-  subjects,
 } from "../data/mock";
 import { findSubject, normalizeCode, subjectLabel } from "../data/subjects";
 
@@ -23,7 +25,10 @@ const isoDate = (date) => {
   return local.toISOString().slice(0, 10);
 };
 
-export default function CreateGroup({ user, onDone }) {
+// onOpen: abre el detalle del grupo recién publicado
+export default function CreateGroup({ user, onOpen }) {
+  // Asignaturas que ya existen en la universidad, para autocompletar la sigla
+  const [subjects, setSubjects] = useState([]);
   const [code, setCode] = useState("");
   const [newName, setNewName] = useState("");
   const [description, setDescription] = useState("");
@@ -37,7 +42,19 @@ export default function CreateGroup({ user, onDone }) {
   const [validUntil, setValidUntil] = useState("");
   // Se calcula una vez al abrir el formulario: la vigencia mínima es mañana
   const [tomorrow] = useState(() => isoDate(new Date(Date.now() + 24 * 60 * 60 * 1000)));
-  const [published, setPublished] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  // Grupo creado por el backend; mientras sea null se muestra el formulario
+  const [published, setPublished] = useState(null);
+
+  useEffect(() => {
+    getSubjectCatalog()
+      .then(setSubjects)
+      .catch(() => {
+        // Sin catálogo igual se puede publicar: se pide el nombre y el backend usa la sigla
+        // existente si ya estaba
+      });
+  }, []);
 
   // "Buscar o crear": si la sigla ya existe se usa esa asignatura; si no, se pide su nombre
   // y el backend la crea al publicar el grupo.
@@ -50,10 +67,36 @@ export default function CreateGroup({ user, onDone }) {
     meetingPoint &&
     days.length > 0 &&
     blocks.length > 0 &&
-    validUntil >= tomorrow;
+    validUntil >= tomorrow &&
+    !saving;
   // Los ramos del usuario aparecen primero en el autocompletado.
   const isMine = (subject) => user.subjects.some((s) => s.code === subject.code);
   const options = [...subjects].sort((a, b) => isMine(b) - isMine(a));
+
+  const publish = async (e) => {
+    e.preventDefault();
+    if (!canPublish) return;
+    setError("");
+    setSaving(true);
+    try {
+      const group = await createGroup({
+        code: normalizeCode(code),
+        subjectName: existing ? "" : newName.trim(),
+        description,
+        isOnline,
+        place,
+        link,
+        days,
+        blocks,
+        capacity,
+        validUntil,
+      });
+      setPublished(group);
+    } catch (err) {
+      setError(errorMessage(err));
+      setSaving(false);
+    }
+  };
 
   if (published) {
     return (
@@ -62,12 +105,13 @@ export default function CreateGroup({ user, onDone }) {
           icon="check"
           title="¡Grupo publicado!"
           action={
-            <button type="button" className="btn btn-primary" onClick={onDone}>
-              Ir a mis grupos
+            <button type="button" className="btn btn-primary" onClick={() => onOpen(published)}>
+              Ver mi grupo
             </button>
           }
         >
-          Tu grupo de {subjectName} ya está visible. Te avisaremos cuando alguien quiera unirse.
+          Tu grupo de {published.subject} ya está visible. Te avisaremos cuando alguien quiera
+          unirse.
         </EmptyState>
       </div>
     );
@@ -83,13 +127,7 @@ export default function CreateGroup({ user, onDone }) {
       </div>
 
       <div className="create-layout">
-        <form
-          className="card form-card"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (canPublish) setPublished(true);
-          }}
-        >
+        <form className="card form-card" onSubmit={publish}>
           <fieldset className="form-section">
             <legend>
               <span className="step">1</span> ¿Qué van a estudiar?
@@ -262,10 +300,15 @@ export default function CreateGroup({ user, onDone }) {
             <span className="field-hint">Te incluye a ti. Máximo {MAX_CAPACITY}.</span>
           </fieldset>
 
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
           <button type="submit" className="btn btn-primary btn-lg btn-block" disabled={!canPublish}>
-            Publicar grupo
+            {saving ? "Publicando…" : "Publicar grupo"}
           </button>
-          {!canPublish && (
+          {!canPublish && !saving && (
             <p className="field-hint center">
               Completa la asignatura, el {isOnline ? "enlace" : "lugar"}, al menos un día y un
               bloque, y hasta cuándo estará vigente.
