@@ -84,6 +84,7 @@ const DEFAULT_ROUTES = {
     apiGroups.map((g) => [`GET /api/grupos/${g.id}`, () => [200, apiDetail(g)]]),
   ),
   "GET /api/grupos/mios": () => [200, { creados: [], participo: [] }],
+  "GET /api/solicitudes/mias": () => [200, []],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
 };
@@ -262,6 +263,60 @@ describe("App", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("El grupo ya no tiene cupos.");
     await waitFor(() => expect(loads).toBe(2));
+  });
+
+  it("muestra mis solicitudes con su estado y abre el detalle", async () => {
+    const sent = (id, group, estado, fields = {}) => ({
+      id,
+      estado,
+      mensaje: null,
+      creada_en: "2026-10-29T15:00:00Z",
+      respondida_en: estado === "pendiente" ? null : "2026-10-29T18:00:00Z",
+      grupo: group,
+      ...fields,
+    });
+    mockApi({
+      "GET /api/solicitudes/mias": () => [
+        200,
+        [
+          sent(41, apiGroups[1], "pendiente"),
+          sent(42, apiGroups[0], "aceptada"),
+          sent(43, apiGroups[2], "rechazada"),
+        ],
+      ],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByText("Pendiente")).toBeInTheDocument();
+    expect(screen.getByText(/Esperando respuesta del creador/)).toBeInTheDocument();
+    expect(screen.getByText("Aceptada")).toBeInTheDocument();
+    expect(screen.getByText(/Ya eres integrante/)).toBeInTheDocument();
+    expect(screen.getByText("Rechazada")).toBeInTheDocument();
+    expect(screen.getAllByText(/Enviada el 29 oct/)).toHaveLength(3);
+
+    // Al tocar una, se abre el detalle del grupo
+    fireEvent.click(screen.getByRole("button", { name: /Física I/ }));
+    expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
+    expect(screen.getByText("Grupo de estudio · FIS1513")).toBeInTheDocument();
+  });
+
+  it("sin solicitudes enviadas invita a buscar grupos", async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByText("No has enviado solicitudes")).toBeInTheDocument();
+  });
+
+  it("muestra el error si no cargan mis solicitudes", async () => {
+    mockApi({ "GET /api/solicitudes/mias": () => [500, { detail: "Error interno" }] });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Error interno");
   });
 
   it("muestra el error si no cargan los grupos", async () => {

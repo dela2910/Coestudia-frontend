@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { requestToJoin, searchGroups, toGroup, toGroupDetail, toMyGroup } from "./groups";
+import {
+  requestToJoin,
+  searchGroups,
+  toGroup,
+  toGroupDetail,
+  toMyGroup,
+  toMyRequest,
+} from "./groups";
 
 const grupo = {
   id: 7,
@@ -141,5 +148,27 @@ describe("requestToJoin", () => {
     expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe("/api/grupos/7/solicitudes");
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(body);
     expect(result.pendingRequest).toBe(true);
+  });
+});
+
+describe("toMyRequest", () => {
+  it("traduce la solicitud y su grupo", () => {
+    expect(
+      toMyRequest({
+        id: 3,
+        estado: "rechazada",
+        mensaje: null,
+        creada_en: "2026-10-29T15:00:00Z",
+        respondida_en: "2026-10-29T18:00:00Z",
+        grupo,
+      }),
+    ).toEqual({
+      id: 3,
+      status: "rechazada",
+      message: "",
+      sentAt: "2026-10-29T15:00:00Z",
+      answeredAt: "2026-10-29T18:00:00Z",
+      group: toGroup(grupo),
+    });
   });
 });

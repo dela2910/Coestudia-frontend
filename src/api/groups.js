@@ -2,7 +2,8 @@ import { request } from "./client";
 
 // Grupos de estudio. Buscar y filtrar (B06): GET /api/grupos. Detalle (B07): GET /api/grupos/{id}.
 // Crear: POST /api/grupos. Mis grupos (B09): GET /api/grupos/mios. Solicitudes para unirse:
-// /api/grupos/{id}/solicitudes y /api/solicitudes/{id}.
+// /api/grupos/{id}/solicitudes y /api/solicitudes/{id}. Mis solicitudes (B09):
+// GET /api/solicitudes/mias.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -121,3 +122,16 @@ export const acceptRequest = async (requestId) =>
 
 export const rejectRequest = async (requestId) =>
   toMyGroup(await request(`/api/solicitudes/${requestId}/rechazar`, { method: "POST" }));
+
+// Solicitud enviada por el usuario. status: "pendiente" | "aceptada" | "rechazada".
+// El grupo viene como en el buscador (sin lugar ni enlace).
+export const toMyRequest = (solicitud) => ({
+  id: solicitud.id,
+  status: solicitud.estado,
+  message: solicitud.mensaje ?? "",
+  sentAt: solicitud.creada_en,
+  answeredAt: solicitud.respondida_en,
+  group: toGroup(solicitud.grupo),
+});
+
+export const getMyRequests = async () => (await request("/api/solicitudes/mias")).map(toMyRequest);
