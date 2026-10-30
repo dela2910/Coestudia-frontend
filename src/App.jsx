@@ -3,7 +3,6 @@ import { getMe, logout, verifyEmail } from "./api/auth";
 import { errorMessage, getToken, onSessionExpired } from "./api/client";
 import { getMySubjects } from "./api/profile";
 import Navbar from "./components/Navbar";
-import { groupFiles, groups, myGroups } from "./data/mock";
 import CreateGroup from "./views/CreateGroup";
 import GroupDetail from "./views/GroupDetail";
 import GroupRoom from "./views/GroupRoom";
@@ -36,8 +35,8 @@ function App() {
   const [view, setView] = useState("home");
   const [previousView, setPreviousView] = useState("home");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
-  // Grupo abierto en el detalle o en su espacio. El detalle se abre desde el buscador (API); el
-  // espacio, desde el detalle o desde "Mis grupos" (todavía de ejemplo, B09)
+  // Grupo abierto en el detalle o en su espacio. El detalle se abre desde el buscador; el
+  // espacio, desde el detalle o desde "Mis grupos"
   const [selectedGroup, setSelectedGroup] = useState(null);
 
   const navigate = (next) => {
@@ -52,9 +51,8 @@ function App() {
   };
 
   // Espacio interno del grupo (asistente y archivos), solo para integrantes.
-  // "Mis grupos" todavía usa los datos de ejemplo (B09).
-  const openRoom = (id) => {
-    setSelectedGroup(groups.find((g) => g.id === id));
+  const openRoom = (group) => {
+    setSelectedGroup(group);
     navigate("room");
   };
 
@@ -180,10 +178,7 @@ function App() {
           <GroupDetail
             key={selectedGroup.id}
             group={selectedGroup}
-            onEnter={(detail) => {
-              setSelectedGroup(detail);
-              navigate("room");
-            }}
+            onEnter={openRoom}
             onBack={() => navigate(previousView)}
           />
         )}
@@ -192,16 +187,13 @@ function App() {
             key={selectedGroup.id}
             group={selectedGroup}
             user={user}
-            // Los archivos todavía son de ejemplo (B12): solo los grupos de ejemplo traen
-            initialFiles={groups.includes(selectedGroup) ? groupFiles[selectedGroup.id] : []}
+            // Los archivos todavía no se guardan en el backend (B12): el espacio parte vacío
             onBack={() => navigate("profile")}
           />
         )}
         {view === "profile" && (
           <Profile
             user={user}
-            groups={groups}
-            myGroups={myGroups}
             onOpen={openRoom}
             onCreate={() => navigate("create")}
             onUpdateUser={updateUser}
