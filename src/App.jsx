@@ -175,7 +175,7 @@ function App() {
             onCreate={() => navigate("create")}
           />
         )}
-        {view === "create" && <CreateGroup user={user} onDone={() => navigate("profile")} />}
+        {view === "create" && <CreateGroup user={user} onOpen={openGroup} />}
         {view === "detail" && selectedGroup && (
           <GroupDetail
             key={selectedGroup.id}
