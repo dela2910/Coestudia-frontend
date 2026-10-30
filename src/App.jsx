@@ -195,6 +195,7 @@ function App() {
           <Profile
             user={user}
             onOpen={openRoom}
+            onOpenDetail={openGroup}
             onCreate={() => navigate("create")}
             onUpdateUser={updateUser}
             onLogout={signOut}

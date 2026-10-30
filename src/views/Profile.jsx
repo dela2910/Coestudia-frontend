@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
-import { acceptRequest, getMyGroups, rejectRequest } from "../api/groups";
+import { acceptRequest, getMyGroups, getMyRequests, rejectRequest } from "../api/groups";
 import { addMySubject, getSubjectCatalog, removeMySubject, updateProfile } from "../api/profile";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
@@ -12,6 +12,79 @@ const CURRENT_YEAR = new Date().getFullYear();
 const MIN_ENTRY_YEAR = 1990;
 
 const byCode = (a, b) => a.code.localeCompare(b.code);
+
+// Estado de «mis solicitudes»: etiqueta, color y qué significa para quien la envió
+const REQUEST_STATUS = {
+  pendiente: { label: "Pendiente", badge: "badge-soft", note: "Esperando respuesta del creador." },
+  aceptada: { label: "Aceptada", badge: "badge-open", note: "Ya eres integrante: entra al grupo." },
+  rechazada: {
+    label: "Rechazada",
+    badge: "badge-closed",
+    note: "El creador no aceptó tu solicitud.",
+  },
+};
+
+// Fecha y hora con zona del backend, mostrada en la hora local, ej. "29 oct"
+const sentDate = (isoDateTime) =>
+  new Date(isoDateTime).toLocaleDateString("es-CL", { day: "numeric", month: "short" });
+
+// Solicitudes que envió el usuario. Se cargan al abrir la pestaña.
+function MyRequests({ onOpenDetail }) {
+  const [requests, setRequests] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getMyRequests()
+      .then(setRequests)
+      .catch((err) => setError(errorMessage(err)));
+  }, []);
+
+  if (error) {
+    return (
+      <p className="form-error" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (!requests) {
+    return (
+      <p className="muted small" role="status">
+        Cargando tus solicitudes…
+      </p>
+    );
+  }
+  if (requests.length === 0) {
+    return (
+      <EmptyState icon="send" title="No has enviado solicitudes">
+        Busca un grupo de tus ramos y solicita ingreso.
+      </EmptyState>
+    );
+  }
+  return (
+    <div className="stack">
+      {requests.map((r) => {
+        const status = REQUEST_STATUS[r.status];
+        return (
+          <GroupCard
+            key={r.id}
+            group={r.group}
+            onOpen={() => onOpenDetail(r.group)}
+            footer={
+              <div className="requests">
+                <div className="requests-head">
+                  <span className={`badge ${status.badge}`}>{status.label}</span>
+                  <span className="muted small">
+                    Enviada el {sentDate(r.sentAt)}. {status.note}
+                  </span>
+                </div>
+              </div>
+            }
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 // Datos del perfil académico (nombre, carrera y año de ingreso). El correo y la universidad
 // salen del correo institucional y no se editan.
@@ -96,8 +169,10 @@ function ProfileForm({ user, onSaved, onCancel }) {
   );
 }
 
-export default function Profile({ user, onOpen, onCreate, onUpdateUser, onLogout }) {
-  const [tab, setTab] = useState("created"); // "created" | "participating"
+// onOpen: abre el espacio de un grupo propio; onOpenDetail: el detalle de un grupo al que
+// enviaste una solicitud
+export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdateUser, onLogout }) {
+  const [tab, setTab] = useState("created"); // "created" | "participating" | "requests"
   const [editing, setEditing] = useState(false);
   // Asignaturas que ya existen en la universidad; crece cuando el usuario agrega una sigla nueva.
   const [catalog, setCatalog] = useState([]);
@@ -300,6 +375,15 @@ export default function Profile({ user, onOpen, onCreate, onUpdateUser, onLogout
           >
             Participo
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "requests"}
+            className={`tab ${tab === "requests" ? "tab-active" : ""}`}
+            onClick={() => setTab("requests")}
+          >
+            Mis solicitudes
+          </button>
         </div>
 
         {requestError && (
@@ -308,7 +392,9 @@ export default function Profile({ user, onOpen, onCreate, onUpdateUser, onLogout
           </p>
         )}
 
-        {groupsError ? (
+        {tab === "requests" ? (
+          <MyRequests onOpenDetail={onOpenDetail} />
+        ) : groupsError ? (
           <p className="form-error" role="alert">
             {groupsError}
           </p>
