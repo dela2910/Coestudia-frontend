@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
+import { acceptRequest, getMyGroups, rejectRequest } from "../api/groups";
 import { addMySubject, getSubjectCatalog, removeMySubject, updateProfile } from "../api/profile";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
@@ -95,15 +96,7 @@ function ProfileForm({ user, onSaved, onCancel }) {
   );
 }
 
-export default function Profile({
-  user,
-  groups,
-  myGroups,
-  onOpen,
-  onCreate,
-  onUpdateUser,
-  onLogout,
-}) {
+export default function Profile({ user, onOpen, onCreate, onUpdateUser, onLogout }) {
   const [tab, setTab] = useState("created"); // "created" | "participating"
   const [editing, setEditing] = useState(false);
   // Asignaturas que ya existen en la universidad; crece cuando el usuario agrega una sigla nueva.
@@ -112,8 +105,18 @@ export default function Profile({
   const [newName, setNewName] = useState("");
   const [subjectError, setSubjectError] = useState("");
   const [savingSubject, setSavingSubject] = useState(false);
-  // Estado de cada solicitud: undefined (pendiente) | "accepted" | "rejected"
-  const [decisions, setDecisions] = useState({});
+  // «Mis grupos»: { created, participating }; null mientras carga
+  const [myGroups, setMyGroups] = useState(null);
+  const [groupsError, setGroupsError] = useState("");
+  // Solicitud que se está aceptando o rechazando
+  const [answering, setAnswering] = useState(null);
+  const [requestError, setRequestError] = useState("");
+
+  useEffect(() => {
+    getMyGroups()
+      .then(setMyGroups)
+      .catch((err) => setGroupsError(errorMessage(err)));
+  }, []);
 
   useEffect(() => {
     getSubjectCatalog()
@@ -124,10 +127,7 @@ export default function Profile({
   }, []);
 
   const subjects = user.subjects;
-  const findGroup = (id) => groups.find((g) => g.id === id);
-  const pendingCount = myGroups.created
-    .flatMap((c) => c.requests)
-    .filter((r) => !decisions[r.id]).length;
+  const pendingCount = myGroups?.created.reduce((total, g) => total + g.requests.length, 0) ?? 0;
 
   const match = newCode.trim() ? findSubject(catalog, newCode) : null;
   const needsName = Boolean(newCode.trim()) && !match;
@@ -164,8 +164,26 @@ export default function Profile({
     }
   };
 
-  const decide = (requestId, decision) =>
-    setDecisions((prev) => ({ ...prev, [requestId]: decision }));
+  // call: acceptRequest o rejectRequest; ambas devuelven el grupo actualizado
+  const answer = async (requestId, call) => {
+    setRequestError("");
+    setAnswering(requestId);
+    try {
+      const updated = await call(requestId);
+      setMyGroups((prev) => ({
+        ...prev,
+        created: prev.created.map((g) => (g.id === updated.id ? updated : g)),
+      }));
+    } catch (err) {
+      setRequestError(errorMessage(err));
+      // Puede que el grupo haya cambiado (se llenó el cupo): se recarga la lista
+      getMyGroups()
+        .then(setMyGroups)
+        .catch(() => {});
+    } finally {
+      setAnswering(null);
+    }
+  };
 
   return (
     <div className="page">
@@ -284,83 +302,96 @@ export default function Profile({
           </button>
         </div>
 
-        {tab === "created" && (
-          <div className="stack">
-            {myGroups.created.map(({ groupId, requests }) => {
-              const group = findGroup(groupId);
-              const pending = requests.filter((r) => !decisions[r.id]);
-              return (
-                <GroupCard
-                  key={groupId}
-                  group={group}
-                  onOpen={onOpen}
-                  ctaLabel="Abrir grupo"
-                  footer={
-                    <div className="requests">
-                      <div className="requests-head">
-                        <Icon name="bell" size={18} />
-                        {pending.length > 0
-                          ? `${pending.length} ${pending.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`
-                          : "Sin solicitudes pendientes"}
-                      </div>
-                      <ul>
-                        {requests.map((r) => (
-                          <li key={r.id} className="request">
-                            <Avatar name={r.name} size="sm" />
-                            <div className="request-who">
-                              <strong>{r.name}</strong>
-                              <span className="muted small">{r.career}</span>
-                            </div>
-                            {decisions[r.id] ? (
-                              <span
-                                className={`badge ${decisions[r.id] === "accepted" ? "badge-open" : "badge-closed"}`}
-                              >
-                                {decisions[r.id] === "accepted" ? "Aceptado" : "Rechazado"}
-                              </span>
-                            ) : (
-                              <div className="request-actions">
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-ghost"
-                                  onClick={() => decide(r.id, "rejected")}
-                                >
-                                  Rechazar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-primary"
-                                  onClick={() => decide(r.id, "accepted")}
-                                >
-                                  Aceptar
-                                </button>
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  }
-                />
-              );
-            })}
-            <button type="button" className="add-tile" onClick={onCreate}>
-              <Icon name="plus" size={20} /> Crear otro grupo
-            </button>
-          </div>
+        {requestError && (
+          <p className="form-error" role="alert">
+            {requestError}
+          </p>
         )}
 
-        {tab === "participating" &&
-          (myGroups.participating.length > 0 ? (
-            <div className="group-grid">
-              {myGroups.participating.map((id) => (
-                <GroupCard key={id} group={findGroup(id)} onOpen={onOpen} ctaLabel="Abrir grupo" />
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon="users" title="Aún no participas en grupos">
-              Busca un grupo de tus ramos y solicita ingreso.
-            </EmptyState>
-          ))}
+        {groupsError ? (
+          <p className="form-error" role="alert">
+            {groupsError}
+          </p>
+        ) : !myGroups ? (
+          <p className="muted small" role="status">
+            Cargando tus grupos…
+          </p>
+        ) : tab === "created" ? (
+          <div className="stack">
+            {myGroups.created.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                onOpen={() => onOpen(group)}
+                ctaLabel="Abrir grupo"
+                footer={
+                  <div className="requests">
+                    <div className="requests-head">
+                      <Icon name="bell" size={18} />
+                      {group.requests.length > 0
+                        ? `${group.requests.length} ${group.requests.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`
+                        : "Sin solicitudes pendientes"}
+                    </div>
+                    <ul>
+                      {group.requests.map((r) => (
+                        <li key={r.id} className="request">
+                          <Avatar name={r.name} size="sm" />
+                          <div className="request-who">
+                            <strong>{r.name}</strong>
+                            <span className="muted small">{r.career}</span>
+                            {r.message && <span className="small">“{r.message}”</span>}
+                          </div>
+                          <div className="request-actions">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              aria-label={`Rechazar a ${r.name}`}
+                              disabled={answering !== null}
+                              onClick={() => answer(r.id, rejectRequest)}
+                            >
+                              Rechazar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-primary"
+                              aria-label={`Aceptar a ${r.name}`}
+                              disabled={answering !== null}
+                              onClick={() => answer(r.id, acceptRequest)}
+                            >
+                              Aceptar
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                }
+              />
+            ))}
+            {myGroups.created.length === 0 && (
+              <p className="muted small">Aún no has creado grupos.</p>
+            )}
+            <button type="button" className="add-tile" onClick={onCreate}>
+              <Icon name="plus" size={20} />{" "}
+              {myGroups.created.length ? "Crear otro grupo" : "Crear un grupo"}
+            </button>
+          </div>
+        ) : myGroups.participating.length > 0 ? (
+          <div className="group-grid">
+            {myGroups.participating.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                onOpen={() => onOpen(group)}
+                ctaLabel="Abrir grupo"
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon="users" title="Aún no participas en grupos">
+            Busca un grupo de tus ramos y solicita ingreso.
+          </EmptyState>
+        )}
       </section>
     </div>
   );

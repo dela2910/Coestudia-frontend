@@ -1,7 +1,8 @@
 import { request } from "./client";
 
 // Grupos de estudio. Buscar y filtrar (B06): GET /api/grupos. Detalle (B07): GET /api/grupos/{id}.
-// Crear: POST /api/grupos.
+// Crear: POST /api/grupos. Mis grupos (B09): GET /api/grupos/mios. Solicitudes para unirse:
+// /api/grupos/{id}/solicitudes y /api/solicitudes/{id}.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -41,6 +42,8 @@ export const toGroupDetail = (grupo) => ({
     isOwner: m.es_creador,
   })),
   isMember: grupo.es_miembro,
+  // El usuario ya pidió unirse y el creador aún no responde
+  pendingRequest: grupo.solicitud_pendiente,
   place: grupo.lugar,
   link: grupo.enlace,
 });
@@ -79,3 +82,42 @@ export const createGroup = async ({
       },
     }),
   );
+
+// Pedir unirse y cancelar la solicitud devuelven el detalle actualizado del grupo.
+export const requestToJoin = async (id, message = "") =>
+  toGroupDetail(
+    await request(`/api/grupos/${id}/solicitudes`, {
+      method: "POST",
+      body: message.trim() ? { mensaje: message.trim() } : {},
+    }),
+  );
+
+export const cancelRequest = async (id) =>
+  toGroupDetail(await request(`/api/grupos/${id}/solicitudes`, { method: "DELETE" }));
+
+// Grupo de «mis grupos»: el usuario es integrante, así que trae lugar y enlace. Si lo creó,
+// también las solicitudes pendientes.
+export const toMyGroup = (grupo) => ({
+  ...toGroup(grupo),
+  isOwner: grupo.es_creador,
+  place: grupo.lugar,
+  link: grupo.enlace,
+  requests: grupo.solicitudes.map((s) => ({
+    id: s.id,
+    name: s.usuario.nombre,
+    career: s.usuario.carrera ?? "",
+    message: s.mensaje ?? "",
+  })),
+});
+
+export async function getMyGroups() {
+  const { creados, participo } = await request("/api/grupos/mios");
+  return { created: creados.map(toMyGroup), participating: participo.map(toMyGroup) };
+}
+
+// Solo el creador del grupo. Devuelven el grupo actualizado (integrantes, cupo y solicitudes).
+export const acceptRequest = async (requestId) =>
+  toMyGroup(await request(`/api/solicitudes/${requestId}/aceptar`, { method: "POST" }));
+
+export const rejectRequest = async (requestId) =>
+  toMyGroup(await request(`/api/solicitudes/${requestId}/rechazar`, { method: "POST" }));

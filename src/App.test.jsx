@@ -43,8 +43,19 @@ const apiDetail = (group, fields = {}) => ({
     { id: 8, nombre: "Luis Castro", carrera: "Ingeniería Comercial", es_creador: false },
   ],
   es_miembro: false,
+  solicitud_pendiente: false,
   lugar: null,
   enlace: null,
+  ...fields,
+});
+
+// Grupo tal como lo devuelve GET /api/grupos/mios: el usuario es integrante
+const apiMyGroup = (group, fields = {}) => ({
+  ...group,
+  es_creador: false,
+  lugar: "Biblioteca central, sala 2",
+  enlace: null,
+  solicitudes: [],
   ...fields,
 });
 
@@ -72,6 +83,7 @@ const DEFAULT_ROUTES = {
   ...Object.fromEntries(
     apiGroups.map((g) => [`GET /api/grupos/${g.id}`, () => [200, apiDetail(g)]]),
   ),
+  "GET /api/grupos/mios": () => [200, { creados: [], participo: [] }],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
 };
@@ -135,7 +147,14 @@ describe("App", () => {
     expect(getToken()).toBe("jwt-de-prueba");
   });
 
-  it("busca un ramo, abre un grupo y solicita ingreso", async () => {
+  it("busca un ramo, abre un grupo, solicita ingreso y la cancela", async () => {
+    const fetchMock = mockApi({
+      "POST /api/grupos/12/solicitudes": () => [
+        201,
+        apiDetail(apiGroups[1], { solicitud_pendiente: true }),
+      ],
+      "DELETE /api/grupos/12/solicitudes": () => [200, apiDetail(apiGroups[1])],
+    });
     await login();
 
     const input = screen.getByLabelText("Buscar asignatura");
@@ -146,20 +165,142 @@ describe("App", () => {
     expect(await screen.findByText("Encontramos 1 grupo")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /Física I/ })[0]);
+    // Se puede pedir cuando llega el detalle
+    await screen.findByText("Luis Castro");
     fireEvent.click(screen.getByRole("button", { name: "Solicitar ingreso" }));
 
-    expect(screen.getByText(/Solicitud enviada/)).toBeInTheDocument();
+    expect(await screen.findByText(/Solicitud enviada/)).toBeInTheDocument();
+    const posts = fetchMock.mock.calls.filter(([, o]) => o?.method === "POST");
+    expect(new URL(posts.at(-1)[0]).pathname).toBe("/api/grupos/12/solicitudes");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar solicitud" }));
+    expect(await screen.findByRole("button", { name: "Solicitar ingreso" })).toBeEnabled();
   });
 
-  it("permite aceptar solicitudes en Mis grupos", async () => {
+  it("muestra el error si no se puede solicitar ingreso", async () => {
+    mockApi({
+      "POST /api/grupos/12/solicitudes": () => [409, { detail: "Este grupo ya no tiene cupos." }],
+    });
+    await login();
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: "fisica" } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Física I/ }))[0]);
+    await screen.findByText("Luis Castro");
+    fireEvent.click(screen.getByRole("button", { name: "Solicitar ingreso" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya no tiene cupos");
+  });
+
+  it("permite aceptar y rechazar solicitudes en Mis grupos", async () => {
+    const request = (id, nombre) => ({
+      id,
+      usuario: { id, nombre, carrera: "Ingeniería Civil" },
+      mensaje: null,
+      creada_en: "2026-10-29T12:00:00Z",
+    });
+    const mine = apiMyGroup(apiGroups[0], {
+      es_creador: true,
+      solicitudes: [
+        { ...request(31, "Pedro Rojas"), mensaje: "Voy atrasado con series" },
+        request(32, "Javiera Muñoz"),
+      ],
+    });
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }],
+      "POST /api/solicitudes/31/aceptar": () => [
+        200,
+        { ...mine, miembros: 3, solicitudes: [mine.solicitudes[1]] },
+      ],
+      "POST /api/solicitudes/32/rechazar": () => [200, { ...mine, miembros: 3, solicitudes: [] }],
+    });
     await login();
     fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
 
-    expect(screen.getByText("2 solicitudes pendientes")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "Aceptar" })[0]);
+    expect(await screen.findByText("2 solicitudes pendientes")).toBeInTheDocument();
+    expect(screen.getByText("“Voy atrasado con series”")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar a Pedro Rojas" }));
+    expect(await screen.findByText("1 solicitud pendiente")).toBeInTheDocument();
+    expect(screen.queryByText("Pedro Rojas")).not.toBeInTheDocument();
+    expect(screen.getByText("3/4 cupos")).toBeInTheDocument();
 
-    expect(screen.getByText("Aceptado")).toBeInTheDocument();
-    expect(screen.getByText("1 solicitud pendiente")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Rechazar a Javiera Muñoz" }));
+    expect(await screen.findByText("Sin solicitudes pendientes")).toBeInTheDocument();
+    const answered = fetchMock.mock.calls
+      .filter(([, o]) => o?.method === "POST")
+      .map(([url]) => new URL(url).pathname);
+    expect(answered).toEqual([
+      "/api/auth/login",
+      "/api/solicitudes/31/aceptar",
+      "/api/solicitudes/32/rechazar",
+    ]);
+  });
+
+  it("muestra el error al responder una solicitud y recarga la lista", async () => {
+    const mine = apiMyGroup(apiGroups[0], {
+      es_creador: true,
+      solicitudes: [
+        {
+          id: 31,
+          usuario: { id: 31, nombre: "Pedro Rojas", carrera: null },
+          mensaje: null,
+          creada_en: "2026-10-29T12:00:00Z",
+        },
+      ],
+    });
+    let loads = 0;
+    mockApi({
+      "GET /api/grupos/mios": () => {
+        loads += 1;
+        return [200, { creados: [mine], participo: [] }];
+      },
+      "POST /api/solicitudes/31/aceptar": () => [409, { detail: "El grupo ya no tiene cupos." }],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Aceptar a Pedro Rojas" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("El grupo ya no tiene cupos.");
+    await waitFor(() => expect(loads).toBe(2));
+  });
+
+  it("muestra el error si no cargan los grupos", async () => {
+    mockApi({ "GET /api/grupos/mios": () => [500, { detail: "Error interno" }] });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Error interno");
+  });
+
+  it("sin grupos creados invita a crear uno", async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+
+    expect(await screen.findByText("Aún no has creado grupos.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Crear un grupo/ }));
+    expect(screen.getByRole("heading", { name: "Crear grupo" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    expect(await screen.findByText("Aún no participas en grupos")).toBeInTheDocument();
+  });
+
+  it("muestra el error si no se puede cancelar la solicitud", async () => {
+    mockApi({
+      "GET /api/grupos/12": () => [200, apiDetail(apiGroups[1], { solicitud_pendiente: true })],
+      "DELETE /api/grupos/12/solicitudes": () => [
+        404,
+        { detail: "No tienes una solicitud pendiente en este grupo." },
+      ],
+    });
+    await login();
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: "fisica" } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Física I/ }))[0]);
+
+    // Al recargar el detalle sigue la solicitud enviada antes
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar solicitud" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No tienes una solicitud pendiente");
   });
 });
 
@@ -694,37 +835,42 @@ describe("Perfil", () => {
 
 describe("Espacio del grupo", () => {
   beforeEach(() => {
-    mockApi();
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+    });
   });
 
+  // Se entra desde "Mis grupos" > "Participo"
   const openRoom = async () => {
     await login();
     fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
     fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
-    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II.*Abrir grupo/ })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
   };
 
-  it("muestra el asistente y los archivos del grupo", async () => {
+  it("muestra el asistente y el lugar del grupo", async () => {
     await openRoom();
 
     expect(screen.getByText("Espacio del grupo")).toBeInTheDocument();
     expect(screen.getByText(/Soy el asistente de estudio de Cálculo II/)).toBeInTheDocument();
-    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
-    expect(within(files).getByText("Guía integrales múltiples.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/Biblioteca central, sala 2/)).toBeInTheDocument();
+    // Los integrantes llegan del detalle del grupo
+    expect(await screen.findByLabelText("2 integrantes")).toBeInTheDocument();
   });
 
-  it("responde preguntas usando los archivos y permite subir más", async () => {
+  it("funciona aunque no carguen los integrantes", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11": () => [500, { detail: "Error interno" }],
+    });
     await openRoom();
 
-    fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
-      target: { value: "Resume los archivos" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
-    expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
-    expect(
-      await screen.findByText(/Aquí va un resumen de los 2 archivos/, {}, { timeout: 2000 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Fuentes:")).toBeInTheDocument();
+    expect(screen.getByText("Espacio del grupo")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText(/integrantes/)).not.toBeInTheDocument());
+  });
+
+  it("responde preguntas usando los archivos que se suben", async () => {
+    await openRoom();
 
     const file = new File(["apuntes"], "Apuntes clase 5.pdf", { type: "application/pdf" });
     fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
@@ -732,7 +878,17 @@ describe("Espacio del grupo", () => {
     const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
     expect(within(files).getByText("Apuntes clase 5.pdf")).toBeInTheDocument();
     expect(screen.getByText(/leí "Apuntes clase 5.pdf"/)).toBeInTheDocument();
-    expect(screen.getByText("Usando 3 archivos")).toBeInTheDocument();
+    expect(screen.getByText("Usando 1 archivo")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
+      target: { value: "Resume los archivos" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Aquí va un resumen de el archivo/, {}, { timeout: 2000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fuentes:")).toBeInTheDocument();
   });
 });
 
@@ -847,7 +1003,10 @@ describe("Buscador", () => {
     expect(screen.getByRole("heading", { name: "Cálculo II" })).toBeInTheDocument();
     expect(screen.getByText("Repaso para el certamen.")).toBeInTheDocument();
     expect(screen.getByText("Integrantes (2/4)")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Solicitar ingreso" })).toBeEnabled();
+    // Se habilita cuando llega el detalle
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Solicitar ingreso" })).toBeEnabled(),
+    );
   });
 
   it("muestra el estado vacío si no hay resultados", async () => {

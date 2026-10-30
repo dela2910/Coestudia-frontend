@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { searchGroups, toGroup } from "./groups";
+import { requestToJoin, searchGroups, toGroup, toGroupDetail, toMyGroup } from "./groups";
 
 const grupo = {
   id: 7,
@@ -71,5 +71,75 @@ describe("searchGroups", () => {
     const fetchMock = mockFetch();
     await searchGroups({ query: "  ", isOnline: null, days: [], blocks: [] });
     expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/grupos$/);
+  });
+});
+
+describe("toGroupDetail", () => {
+  it("deja la carrera vacía si el integrante no la tiene", () => {
+    const detail = toGroupDetail({
+      ...grupo,
+      creador: "Ana",
+      integrantes: [{ id: 1, nombre: "Ana", carrera: null, es_creador: true }],
+      es_miembro: false,
+      solicitud_pendiente: true,
+      lugar: null,
+      enlace: null,
+    });
+    expect(detail.integrants).toEqual([{ id: 1, name: "Ana", career: "", isOwner: true }]);
+    expect(detail.pendingRequest).toBe(true);
+  });
+});
+
+describe("toMyGroup", () => {
+  it("traduce las solicitudes pendientes", () => {
+    const mine = toMyGroup({
+      ...grupo,
+      es_creador: true,
+      lugar: null,
+      enlace: "https://meet.google.com/abc",
+      solicitudes: [
+        {
+          id: 5,
+          usuario: { id: 9, nombre: "Luis", carrera: null },
+          mensaje: null,
+          creada_en: "2026-10-29T12:00:00Z",
+        },
+      ],
+    });
+    expect(mine).toMatchObject({ isOwner: true, place: null, link: "https://meet.google.com/abc" });
+    expect(mine.requests).toEqual([{ id: 5, name: "Luis", career: "", message: "" }]);
+  });
+});
+
+describe("requestToJoin", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const detail = {
+    ...grupo,
+    creador: "Ana",
+    integrantes: [],
+    es_miembro: false,
+    solicitud_pendiente: true,
+    lugar: null,
+    enlace: null,
+  };
+
+  it.each([
+    ["  Voy atrasado  ", { mensaje: "Voy atrasado" }],
+    ["   ", {}],
+    [undefined, {}],
+  ])("manda el mensaje solo si tiene texto (%j)", async (message, body) => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () => Promise.resolve(detail),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestToJoin(7, message);
+
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe("/api/grupos/7/solicitudes");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual(body);
+    expect(result.pendingRequest).toBe(true);
   });
 });

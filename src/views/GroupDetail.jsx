@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
-import { getGroup } from "../api/groups";
+import { cancelRequest, getGroup, requestToJoin } from "../api/groups";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, CapacityBar, StatusBadge } from "../components/ui";
 import { formatDate, meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
@@ -10,7 +10,9 @@ import { formatDate, meetingPoint, modalityLabel, scheduleLabel } from "../data/
 export default function GroupDetail({ group: summary, onEnter, onBack }) {
   const [detail, setDetail] = useState(null);
   const [error, setError] = useState("");
-  const [requested, setRequested] = useState(false);
+  // Pedir unirse o cancelar la solicitud en curso
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -24,6 +26,24 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
 
   const group = detail ?? summary;
   const isMember = detail?.isMember ?? false;
+  const requested = detail?.pendingRequest ?? false;
+
+  // call: requestToJoin o cancelRequest; ambas devuelven el detalle actualizado
+  const act = async (call) => {
+    setActionError("");
+    setBusy(true);
+    try {
+      setDetail(await call(summary.id));
+    } catch (err) {
+      setActionError(errorMessage(err));
+      // Puede haber cambiado algo (se llenó el cupo, ya respondieron): se vuelve a cargar
+      getGroup(summary.id)
+        .then(setDetail)
+        .catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
   // isOpen viene del buscador; los grupos de ejemplo no lo traen
   const closed = group.isOpen === false;
   const full = group.members >= group.capacity;
@@ -142,18 +162,29 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
                 <Icon name="check" size={18} strokeWidth={2.4} /> Solicitud enviada. Te avisaremos
                 cuando {group.owner ?? "el creador"} responda.
               </span>
-              <button type="button" className="link-btn" onClick={() => setRequested(false)}>
-                Cancelar solicitud
+              <button
+                type="button"
+                className="link-btn"
+                disabled={busy}
+                onClick={() => act(cancelRequest)}
+              >
+                {busy ? "Cancelando…" : "Cancelar solicitud"}
               </button>
             </div>
           ) : (
             <button
               type="button"
               className="btn btn-primary btn-lg btn-block"
-              onClick={() => setRequested(true)}
+              disabled={!detail || busy}
+              onClick={() => act(requestToJoin)}
             >
-              Solicitar ingreso
+              {busy ? "Enviando…" : "Solicitar ingreso"}
             </button>
+          )}
+          {actionError && (
+            <p className="form-error" role="alert">
+              {actionError}
+            </p>
           )}
           {isMember ? (
             <p className="notice">
