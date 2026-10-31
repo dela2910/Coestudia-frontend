@@ -4,25 +4,23 @@ import { ApiError, errorMessage } from "../api/client";
 import AuthHero from "../components/AuthHero";
 import BackendStatus from "../components/BackendStatus";
 import Icon from "../components/Icon";
+import { PASSWORD_RULES, passwordIsStrong, passwordTooLong } from "../data/password";
 import { universityFromEmail } from "../data/universities";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_ENTRY_YEAR = 1990;
-const MIN_PASSWORD = 8;
-// bcrypt (backend) usa solo los primeros 72 bytes
-const MAX_PASSWORD_BYTES = 72;
-
-// Mismas reglas que valida el backend (app/schemas.py)
-const PASSWORD_RULES = [
-  { label: `${MIN_PASSWORD} caracteres o más`, test: (p) => p.length >= MIN_PASSWORD },
-  { label: "Una mayúscula", test: (p) => p !== p.toLowerCase() },
-  { label: "Una minúscula", test: (p) => p !== p.toUpperCase() },
-  { label: "Un número", test: (p) => /\d/.test(p) },
-];
 
 // notice: aviso que llega desde fuera (ej. el enlace de verificación ya expiró)
+// success: aviso positivo que llega desde fuera (ej. la contraseña se cambió)
 // draft: datos de un registro anterior para corregir el correo sin llenar todo de nuevo
-export default function Login({ onLoggedIn, onNeedsVerification, notice = "", draft = null }) {
+export default function Login({
+  onLoggedIn,
+  onNeedsVerification,
+  onForgotPassword,
+  notice = "",
+  success = "",
+  draft = null,
+}) {
   const [mode, setMode] = useState(draft ? "register" : "login"); // "login" | "register"
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
@@ -43,10 +41,10 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "", dr
       return "Completa todos los campos.";
     }
     if (!university) return "Por ahora solo se aceptan correos @uc.cl.";
-    if (!PASSWORD_RULES.every((rule) => rule.test(password))) {
+    if (!passwordIsStrong(password)) {
       return "La contraseña debe cumplir todos los requisitos.";
     }
-    if (passwordTooLong()) return "La contraseña es demasiado larga.";
+    if (passwordTooLong(password)) return "La contraseña es demasiado larga.";
     const year = Number(entryYear);
     if (year < MIN_ENTRY_YEAR || year > CURRENT_YEAR) {
       return `El año de ingreso debe estar entre ${MIN_ENTRY_YEAR} y ${CURRENT_YEAR}.`;
@@ -55,11 +53,9 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "", dr
     return "";
   };
 
-  const passwordTooLong = () => new TextEncoder().encode(password).length > MAX_PASSWORD_BYTES;
-
   const loginError = () => {
     if (!email.trim() || !password) return "Ingresa tu correo y tu contraseña.";
-    if (passwordTooLong()) return "La contraseña es demasiado larga.";
+    if (passwordTooLong(password)) return "La contraseña es demasiado larga.";
     return "";
   };
 
@@ -250,9 +246,19 @@ export default function Login({ onLoggedIn, onNeedsVerification, notice = "", dr
           )}
 
           {isLogin && (
-            <button type="button" className="link-btn align-end">
+            <button
+              type="button"
+              className="link-btn align-end"
+              onClick={() => onForgotPassword(email.trim())}
+            >
               ¿Olvidaste tu contraseña?
             </button>
+          )}
+
+          {success && !error && (
+            <p className="form-success" role="status">
+              {success}
+            </p>
           )}
 
           {error && (

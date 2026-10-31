@@ -41,6 +41,13 @@ export const verifyEmail = async (token) =>
 export const resendVerification = (email) =>
   request("/api/auth/reenviar-verificacion", { method: "POST", body: { email } });
 
+// Recuperar contraseña (B04): el backend manda un enlace <frontend>/?restablecer=<token>.
+export const requestPasswordReset = (email) =>
+  request("/api/auth/recuperar-contrasena", { method: "POST", body: { email } });
+
+export const resetPassword = (token, password) =>
+  request("/api/auth/restablecer-contrasena", { method: "POST", body: { token, password } });
+
 // Usuario de la sesión guardada; falla con 401 si el token ya no sirve.
 export const getMe = async () => toUser(await request("/api/auth/me"));
 

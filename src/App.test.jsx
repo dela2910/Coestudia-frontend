@@ -616,6 +616,103 @@ describe("Inicio de sesión y verificación", () => {
   });
 });
 
+describe("Recuperar contraseña", () => {
+  const RESET_DONE = "Tu contraseña se cambió. Ya puedes iniciar sesión con la nueva.";
+
+  const fillNewPassword = (password, confirmation = password) => {
+    fireEvent.change(screen.getByLabelText("Contraseña nueva"), { target: { value: password } });
+    fireEvent.change(screen.getByLabelText("Repite la contraseña"), {
+      target: { value: confirmation },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cambiar contraseña" }));
+  };
+
+  it("pide el enlace con el correo que ya estaba escrito", async () => {
+    const fetchMock = mockApi({
+      "POST /api/auth/recuperar-contrasena": () => [202, { message: "ok" }],
+    });
+    render(<App />);
+    fireEvent.change(screen.getByPlaceholderText("nombre@uc.cl"), {
+      target: { value: "camila@uc.cl" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "¿Olvidaste tu contraseña?" }));
+
+    expect(screen.getByRole("heading", { name: "Recupera tu contraseña" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("nombre@uc.cl")).toHaveValue("camila@uc.cl");
+    fireEvent.click(screen.getByRole("button", { name: "Enviar enlace" }));
+
+    expect(await screen.findByText(/Revisa tu bandeja/)).toBeInTheDocument();
+    const sent = fetchMock.mock.calls.find(([url]) => url.endsWith("/recuperar-contrasena"));
+    expect(JSON.parse(sent[1].body)).toEqual({ email: "camila@uc.cl" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Volver a iniciar sesión" }));
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+  });
+
+  it("no pide el enlace sin correo", () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "¿Olvidaste tu contraseña?" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar enlace" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Ingresa tu correo.");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/recuperar-contrasena"))).toBe(false);
+  });
+
+  it("cambia la contraseña con el enlace del correo y vuelve al inicio de sesión", async () => {
+    const fetchMock = mockApi({
+      "POST /api/auth/restablecer-contrasena": () => [200, { message: RESET_DONE }],
+    });
+    setToken("jwt-anterior");
+    window.history.replaceState(null, "", "/?restablecer=token-del-correo");
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Elige una contraseña nueva" })).toBeInTheDocument();
+    // El token se saca de la URL
+    expect(window.location.search).toBe("");
+    fillNewPassword("Nueva-clave-1");
+
+    expect(await screen.findByText(RESET_DONE)).toBeInTheDocument();
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+    const reset = fetchMock.mock.calls.find(([url]) => url.endsWith("/restablecer-contrasena"));
+    expect(JSON.parse(reset[1].body)).toEqual({
+      token: "token-del-correo",
+      password: "Nueva-clave-1",
+    });
+    // El cambio cierra las sesiones: no se intenta recuperar la anterior
+    expect(getToken()).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/api/auth/me"))).toBe(false);
+  });
+
+  it("valida la contraseña nueva antes de enviarla", () => {
+    const fetchMock = mockApi();
+    window.history.replaceState(null, "", "/?restablecer=token");
+    render(<App />);
+
+    fillNewPassword("debil");
+    expect(screen.getByRole("alert")).toHaveTextContent("debe cumplir todos los requisitos");
+    fillNewPassword("Nueva-clave-1", "Nueva-clave-2");
+    expect(screen.getByRole("alert")).toHaveTextContent("no coinciden");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/restablecer-contrasena"))).toBe(
+      false,
+    );
+  });
+
+  it("muestra el error si el enlace expiró", async () => {
+    mockApi({
+      "POST /api/auth/restablecer-contrasena": () => [
+        400,
+        { detail: "El enlace para cambiar la contraseña no es válido o ya expiró. Pide uno nuevo." },
+      ],
+    });
+    window.history.replaceState(null, "", "/?restablecer=viejo");
+    render(<App />);
+    fillNewPassword("Nueva-clave-1");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya expiró");
+  });
+});
+
 describe("Crear grupo", () => {
   // Grupo que devuelve POST /api/grupos: el creador queda como integrante
   const created = apiDetail(apiGroup(21, "MAT1620", "Cálculo II", { miembros: 1 }), {

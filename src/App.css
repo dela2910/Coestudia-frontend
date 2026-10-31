@@ -348,6 +348,16 @@
   font-weight: 600;
 }
 
+.form-success {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
 .input-wrap {
   display: flex;
   align-items: center;
