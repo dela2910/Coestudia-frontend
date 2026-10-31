@@ -4,11 +4,13 @@ import { errorMessage, getToken, onSessionExpired } from "./api/client";
 import { getMySubjects } from "./api/profile";
 import Navbar from "./components/Navbar";
 import CreateGroup from "./views/CreateGroup";
+import ForgotPassword from "./views/ForgotPassword";
 import GroupDetail from "./views/GroupDetail";
 import GroupRoom from "./views/GroupRoom";
 import Home from "./views/Home";
 import Login from "./views/Login";
 import Profile from "./views/Profile";
+import ResetPassword from "./views/ResetPassword";
 import Results from "./views/Results";
 import VerifyEmail from "./views/VerifyEmail";
 import "./App.css";
@@ -17,15 +19,22 @@ const EMPTY_FILTERS = { query: "", isOnline: null, days: [], blocks: [] };
 
 // Token del enlace de verificación que llega por correo: <frontend>/?verificar=<token>
 const verificationToken = () => new URLSearchParams(window.location.search).get("verificar");
+// Token del enlace para elegir una contraseña nueva: <frontend>/?restablecer=<token>
+const passwordResetToken = () => new URLSearchParams(window.location.search).get("restablecer");
 
 function App() {
-  // authStep: "loading" (revisando la sesión) | "login" | "verify" (verificar correo) | "done"
-  const [authStep, setAuthStep] = useState(() =>
-    verificationToken() || getToken() ? "loading" : "login",
-  );
+  const [resetToken] = useState(passwordResetToken);
+  // authStep: "loading" (revisando la sesión) | "login" | "verify" (verificar correo)
+  // | "forgot" (pedir el enlace para recuperar la contraseña) | "reset" (elegir una nueva) | "done"
+  const [authStep, setAuthStep] = useState(() => {
+    if (resetToken) return "reset";
+    return verificationToken() || getToken() ? "loading" : "login";
+  });
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState("");
   const [authNotice, setAuthNotice] = useState("");
+  // Aviso positivo en el inicio de sesión (ej. la contraseña se cambió)
+  const [authSuccess, setAuthSuccess] = useState("");
   // Datos del registro recién enviado, para volver a él si el correo estaba mal
   const [registerDraft, setRegisterDraft] = useState(null);
   const [loginDraft, setLoginDraft] = useState(null);
@@ -72,19 +81,24 @@ function App() {
   };
 
   // draft: si viene, se abre "Crear cuenta" con esos datos ya llenos
-  const showLogin = (notice = "", draft = null) => {
+  const showLogin = (notice = "", draft = null, success = "") => {
     setAuthNotice(notice);
+    setAuthSuccess(success);
     setLoginDraft(draft);
     setAuthStep("login");
   };
 
-  // Al abrir la app: primero el enlace de verificación, si no, la sesión guardada.
+  // Al abrir la app: primero los enlaces del correo (contraseña nueva o verificación), si no, la
+  // sesión guardada.
   useEffect(() => {
     if (sessionChecked.current) return;
     sessionChecked.current = true;
 
     const token = verificationToken();
-    if (token) {
+    if (passwordResetToken()) {
+      // Igual que con la verificación: el token no queda en el historial (ya está en resetToken)
+      window.history.replaceState(null, "", window.location.pathname);
+    } else if (token) {
       // Se saca el token de la URL para que no quede en el historial ni se reutilice al recargar
       window.history.replaceState(null, "", window.location.pathname);
       verifyEmail(token)
@@ -126,8 +140,9 @@ function App() {
   if (authStep === "login") {
     return (
       <Login
-        key={authNotice}
+        key={authNotice + authSuccess}
         notice={authNotice}
+        success={authSuccess}
         draft={loginDraft}
         onLoggedIn={enter}
         onNeedsVerification={(typedEmail, draft = null) => {
@@ -135,6 +150,28 @@ function App() {
           setRegisterDraft(draft);
           setAuthStep("verify");
         }}
+        onForgotPassword={(typedEmail) => {
+          setEmail(typedEmail);
+          setAuthStep("forgot");
+        }}
+      />
+    );
+  }
+
+  if (authStep === "forgot") {
+    return <ForgotPassword initialEmail={email} onBackToLogin={() => showLogin()} />;
+  }
+
+  if (authStep === "reset") {
+    return (
+      <ResetPassword
+        token={resetToken}
+        onDone={(message) => {
+          // El cambio cierra todas las sesiones, también la guardada en este navegador
+          logout();
+          showLogin("", null, message);
+        }}
+        onCancel={() => showLogin()}
       />
     );
   }
