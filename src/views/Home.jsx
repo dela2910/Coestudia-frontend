@@ -5,18 +5,18 @@ import { BLOCKS, DAYS, MODALITIES } from "../data/mock";
 
 export default function Home({ user, initialFilters, onSearch, onCreate }) {
   const [query, setQuery] = useState(initialFilters.query);
-  const [modality, setModality] = useState(initialFilters.modality);
+  const [isOnline, setIsOnline] = useState(initialFilters.isOnline);
   const [days, setDays] = useState(initialFilters.days);
   const [blocks, setBlocks] = useState(initialFilters.blocks);
 
   const firstName = user.name.split(" ")[0];
-  const hasFilters = modality || days.length > 0 || blocks.length > 0;
+  const hasFilters = isOnline !== null || days.length > 0 || blocks.length > 0;
 
   const search = (overrideQuery) =>
-    onSearch({ query: overrideQuery ?? query, modality, days, blocks });
+    onSearch({ query: overrideQuery ?? query, isOnline, days, blocks });
 
   const clearFilters = () => {
-    setModality(null);
+    setIsOnline(null);
     setDays([]);
     setBlocks([]);
   };
@@ -39,7 +39,7 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
           <Icon name="search" size={22} />
           <input
             type="search"
-            placeholder="Buscar asignatura… (ej: Cálculo II)"
+            placeholder="Buscar por ramo o sigla… (ej: Cálculo II, MAT1620)"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-label="Buscar asignatura"
@@ -55,8 +55,8 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
             <ToggleGroup
               label="Modalidad"
               options={MODALITIES}
-              value={modality}
-              onChange={setModality}
+              value={isOnline}
+              onChange={setIsOnline}
             />
           </div>
           <div className="filter">
@@ -84,22 +84,29 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
 
       <section className="section">
         <h2 className="section-title">Tus ramos</h2>
-        <p className="muted small">Toca uno para ver sus grupos al tiro.</p>
+        <p className="muted small">
+          {user.subjects.length > 0
+            ? "Toca uno para ver sus grupos al tiro."
+            : "Agrega las asignaturas que cursas en Mis grupos y aparecerán aquí."}
+        </p>
         <div className="subject-grid">
-          {user.subjects.map((subject) => (
+          {user.subjects.map(({ code, name }) => (
             <button
-              key={subject}
+              key={code}
               type="button"
               className="subject-tile"
               onClick={() => {
-                setQuery(subject);
-                search(subject);
+                setQuery(code);
+                search(code);
               }}
             >
               <span className="subject-icon">
                 <Icon name="book" size={18} />
               </span>
-              <span>{subject}</span>
+              <span className="subject-tile-text">
+                <span>{name}</span>
+                <span className="subject-code">{code}</span>
+              </span>
               <Icon name="chevronRight" size={18} className="subject-arrow" />
             </button>
           ))}

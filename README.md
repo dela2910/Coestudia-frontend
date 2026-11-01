@@ -26,6 +26,7 @@ puedes apuntar `VITE_API_URL` al backend en producción: `https://coestudia-back
 ```bash
 npm run lint     # oxlint
 npm test         # vitest (no necesita el backend corriendo)
+npm run coverage # vitest con el porcentaje de cobertura por archivo
 npm run build    # genera dist/
 ```
 
@@ -37,10 +38,18 @@ push a `main`.
 ```
 src/
 ├── api/
-│   └── client.js      # getHello() y URL base del backend
+│   ├── client.js      # request() base, token de sesión y URL del backend
+│   ├── auth.js        # registro, verificación del correo, login y sesión
+│   ├── groups.js      # buscar y filtrar grupos
+│   ├── profile.js     # editar el perfil y «mis asignaturas»
+│   └── assistant.js   # asistente IA (simulado)
+├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
+├── data/
+│   └── mock.js        # datos de ejemplo con la forma del modelo de datos
+├── views/             # una vista por pantalla (Login, Home, Results, CreateGroup…)
 ├── test/
 │   └── setup.js       # configuración de Vitest + jest-dom
-├── App.jsx            # llama a la API y muestra los 3 estados
+├── App.jsx            # navegación entre vistas
 ├── App.test.jsx
 ├── App.css
 ├── index.css
@@ -49,6 +58,32 @@ src/
 ├── ci.yml             # lint → test → build
 └── release.yml        # tag v* → release en GitHub → deploy a Vercel
 ```
+
+## Conectar una vista a la API
+
+El inicio de sesión y el buscador (`Home` y `Results`) ya usan la API; las demás vistas todavía
+usan los datos de `src/data/mock.js`. Cada tarea conecta su vista al backend:
+
+1. Agrega la función del endpoint en `src/api/` usando `request()`, que ya envía JSON, agrega el
+   token de sesión y lanza `ApiError` con el mensaje (`detail`) de FastAPI:
+
+   ```js
+   export const searchGroups = (params) => request(`/api/grupos?${new URLSearchParams(params)}`);
+   ```
+
+2. En la vista, reemplaza el dato de `mock.js` por la llamada y muestra los estados de carga y
+   error.
+
+La sesión ya funciona contra el backend: al iniciar sesión se guarda el JWT y `request()` lo
+manda solo en cada llamada, así que los endpoints protegidos no necesitan nada extra. Si una
+llamada responde 401 porque la sesión venció, `request()` borra el token y la app vuelve sola al
+inicio de sesión: las vistas solo tienen que mostrar sus propios errores. El enlace
+del correo de verificación abre `/?verificar=<token>` y `App.jsx` inicia la sesión. En local, ese
+enlace aparece en la consola del backend.
+
+Los datos de ejemplo ya tienen la forma del modelo: `isOnline` (es_online), `schedule` con
+`{ day, isMorning }` (horario_grupo: día 0 = lunes … 5 = sábado), `place` o `link`, y
+`validUntil` (vigente_hasta).
 
 ## Variables de entorno
 

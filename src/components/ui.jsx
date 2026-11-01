@@ -36,7 +36,7 @@ export function ToggleGroup({ options, value, onChange, multiple = false, label 
     <div className="toggle-group" role="group" aria-label={label}>
       {options.map((opt) => (
         <button
-          key={opt.id}
+          key={String(opt.id)}
           type="button"
           className={`pill ${isActive(opt.id) ? "pill-active" : ""}`}
           aria-pressed={isActive(opt.id)}
@@ -67,11 +67,13 @@ export function CapacityBar({ members, capacity }) {
   );
 }
 
-export function StatusBadge({ members, capacity }) {
+// open: GRUPO_ESTUDIO.abierto. Un grupo puede estar cerrado sin estar lleno (lo cerró el creador).
+export function StatusBadge({ members, capacity, open = true }) {
   const full = members >= capacity;
+  const closed = full || !open;
   return (
-    <span className={`badge ${full ? "badge-closed" : "badge-open"}`}>
-      {full ? "Completo" : "Abierto"}
+    <span className={`badge ${closed ? "badge-closed" : "badge-open"}`}>
+      {full ? "Completo" : closed ? "Cerrado" : "Abierto"}
     </span>
   );
 }

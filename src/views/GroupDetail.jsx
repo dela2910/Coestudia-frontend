@@ -1,10 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { errorMessage } from "../api/client";
+import { cancelRequest, getGroup, requestToJoin } from "../api/groups";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, CapacityBar, StatusBadge } from "../components/ui";
-import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import { formatDate, meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
-export default function GroupDetail({ group, isMember = false, onEnter, onBack }) {
-  const [requested, setRequested] = useState(false);
+// summary: el grupo como viene del buscador. Mientras llega el detalle (integrantes, creador y,
+// si eres integrante, el lugar o enlace) se muestran esos datos.
+export default function GroupDetail({ group: summary, onEnter, onBack }) {
+  const [detail, setDetail] = useState(null);
+  const [error, setError] = useState("");
+  // Pedir unirse o cancelar la solicitud en curso
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    getGroup(summary.id)
+      .then((group) => active && setDetail(group))
+      .catch((err) => active && setError(errorMessage(err)));
+    return () => {
+      active = false;
+    };
+  }, [summary.id]);
+
+  const group = detail ?? summary;
+  const isMember = detail?.isMember ?? false;
+  const requested = detail?.pendingRequest ?? false;
+
+  // call: requestToJoin o cancelRequest; ambas devuelven el detalle actualizado
+  const act = async (call) => {
+    setActionError("");
+    setBusy(true);
+    try {
+      setDetail(await call(summary.id));
+    } catch (err) {
+      setActionError(errorMessage(err));
+      // Puede haber cambiado algo (se llenó el cupo, ya respondieron): se vuelve a cargar
+      getGroup(summary.id)
+        .then(setDetail)
+        .catch(() => {});
+    } finally {
+      setBusy(false);
+    }
+  };
+  // isOpen viene del buscador; los grupos de ejemplo no lo traen
+  const closed = group.isOpen === false;
   const full = group.members >= group.capacity;
   const freeSpots = group.capacity - group.members;
 
@@ -15,39 +56,54 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
       <article className="card detail">
         <header className="detail-head">
           <div>
-            <span className="eyebrow">Grupo de estudio</span>
+            <span className="eyebrow">Grupo de estudio · {group.code}</span>
             <h1>{group.subject}</h1>
           </div>
-          <StatusBadge members={group.members} capacity={group.capacity} />
+          <StatusBadge members={group.members} capacity={group.capacity} open={!closed} />
         </header>
 
         <div className="info-grid">
           <div className="info">
-            <Icon name={group.modality === "online" ? "monitor" : "mapPin"} size={20} />
+            <Icon name={group.isOnline ? "monitor" : "mapPin"} size={20} />
             <div>
               <span className="info-label">Modalidad</span>
-              <span>{modalityLabel(group.modality)}</span>
+              <span>{modalityLabel(group.isOnline)}</span>
             </div>
           </div>
           <div className="info">
             <Icon name="calendar" size={20} />
             <div>
-              <span className="info-label">Día</span>
-              <span>{dayLabel(group.day)}</span>
+              <span className="info-label">Horario</span>
+              <span>{scheduleLabel(group.schedule)}</span>
             </div>
           </div>
+          {isMember && meetingPoint(group) && (
+            <div className="info">
+              <Icon name={group.isOnline ? "monitor" : "mapPin"} size={20} />
+              <div>
+                <span className="info-label">{group.isOnline ? "Enlace" : "Lugar"}</span>
+                {group.isOnline ? (
+                  <a href={group.link} target="_blank" rel="noreferrer">
+                    {group.link}
+                  </a>
+                ) : (
+                  <span>{group.place}</span>
+                )}
+              </div>
+            </div>
+          )}
           <div className="info">
             <Icon name="clock" size={20} />
             <div>
-              <span className="info-label">Bloque</span>
-              <span>{blockLabel(group.block)}</span>
+              <span className="info-label">Vigente hasta</span>
+              <span>{formatDate(group.validUntil)}</span>
             </div>
           </div>
         </div>
 
         <section>
           <h2 className="section-title">Descripción</h2>
-          <p>{group.description}</p>
+          <p>{group.description || "El creador no agregó una descripción."}</p>
         </section>
 
         <section>
@@ -56,56 +112,85 @@ export default function GroupDetail({ group, isMember = false, onEnter, onBack }
               Integrantes ({group.members}/{group.capacity})
             </h2>
             <span className="muted small">
-              {full ? "Sin cupos" : `${freeSpots} ${freeSpots === 1 ? "cupo libre" : "cupos libres"}`}
+              {full
+                ? "Sin cupos"
+                : `${freeSpots} ${freeSpots === 1 ? "cupo libre" : "cupos libres"}`}
             </span>
           </div>
           <CapacityBar members={group.members} capacity={group.capacity} />
-          <ul className="member-list">
-            {group.integrants.map((m) => (
-              <li key={m.name} className="member">
-                <Avatar name={m.name} />
-                <div>
-                  <strong>{m.name}</strong>
-                  <span className="muted small">{m.career}</span>
-                </div>
-                {m.name === group.owner && <span className="badge badge-soft">Creador</span>}
-              </li>
-            ))}
-          </ul>
+          {/* Los integrantes los trae el detalle del grupo; el buscador no los incluye */}
+          {error ? (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          ) : detail ? (
+            <ul className="member-list">
+              {detail.integrants.map((m) => (
+                <li key={m.id} className="member">
+                  <Avatar name={m.name} />
+                  <div>
+                    <strong>{m.name}</strong>
+                    <span className="muted small">{m.career}</span>
+                  </div>
+                  {m.isOwner && <span className="badge badge-soft">Creador</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted small" role="status">
+              Cargando integrantes…
+            </p>
+          )}
         </section>
 
         <div className="detail-actions">
           {isMember ? (
-            <button type="button" className="btn btn-primary btn-lg btn-block" onClick={onEnter}>
+            <button
+              type="button"
+              className="btn btn-primary btn-lg btn-block"
+              onClick={() => onEnter(detail)}
+            >
               <Icon name="chat" size={18} /> Abrir grupo
             </button>
-          ) : full ? (
+          ) : error || full || closed ? (
             <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
-              Grupo completo
+              {error ? "No disponible" : full ? "Grupo completo" : "Grupo cerrado"}
             </button>
           ) : requested ? (
             <div className="request-sent">
               <span className="request-sent-text">
                 <Icon name="check" size={18} strokeWidth={2.4} /> Solicitud enviada. Te avisaremos
-                cuando {group.owner} responda.
+                cuando {group.owner ?? "el creador"} responda.
               </span>
-              <button type="button" className="link-btn" onClick={() => setRequested(false)}>
-                Cancelar solicitud
+              <button
+                type="button"
+                className="link-btn"
+                disabled={busy}
+                onClick={() => act(cancelRequest)}
+              >
+                {busy ? "Cancelando…" : "Cancelar solicitud"}
               </button>
             </div>
           ) : (
             <button
               type="button"
               className="btn btn-primary btn-lg btn-block"
-              onClick={() => setRequested(true)}
+              disabled={!detail || busy}
+              onClick={() => act(requestToJoin)}
             >
-              Solicitar ingreso
+              {busy ? "Enviando…" : "Solicitar ingreso"}
             </button>
+          )}
+          {actionError && (
+            <p className="form-error" role="alert">
+              {actionError}
+            </p>
           )}
           {isMember ? (
             <p className="notice">
               <Icon name="users" size={16} />
-              Ya eres integrante: dentro del grupo puedes compartir archivos y consultarlos con el asistente de estudio.
+              Ya eres integrante: dentro del grupo puedes compartir archivos y consultarlos con el
+              asistente de estudio.
             </p>
           ) : (
             <p className="notice">

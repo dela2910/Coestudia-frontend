@@ -186,8 +186,15 @@
   border: none;
   outline: none;
   background: transparent;
-  width: 150px;
+  width: 120px;
   font-size: 0.875rem;
+}
+
+/* Aparece solo cuando la sigla es nueva y hay que escribir el nombre del ramo. */
+.chip-add .chip-add-name {
+  width: 160px;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--border);
 }
 
 .chip-add button {
@@ -264,6 +271,91 @@
 
 .field-hint.center {
   align-self: center;
+}
+
+/* Dato confirmado bajo un campo (ej. la universidad deducida del correo). */
+.field-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--success);
+}
+
+/* Dos campos lado a lado; en pantallas chicas se apilan. */
+.field-row {
+  display: grid;
+  /* minmax(0, …): sin esto, el ancho mínimo del input empuja la segunda columna fuera del formulario. */
+  grid-template-columns: minmax(0, 1fr) 9.5rem;
+  gap: 0.75rem;
+}
+
+@media (max-width: 480px) {
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Requisitos de la contraseña: se marcan en verde a medida que se cumplen. */
+.password-rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.8rem;
+  color: var(--ink-faint);
+}
+
+.password-rules li {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.password-rules .rule-ok {
+  color: var(--success);
+  font-weight: 600;
+}
+
+/* Casilla con texto al lado (ej. aceptar términos y condiciones). */
+.checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.checkbox-field input {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--sky-600);
+}
+
+.form-error {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.form-success {
+  margin: 0;
+  padding: 0.6rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 0.875rem;
+  font-weight: 600;
 }
 
 .input-wrap {
@@ -505,6 +597,15 @@ textarea::placeholder {
 }
 
 /* ---------- Auth ---------- */
+/* Mientras se revisa la sesión guardada o el enlace de verificación. */
+.auth-loading {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
 .auth {
   min-height: 100vh;
   display: grid;
@@ -799,6 +900,19 @@ textarea::placeholder {
 
 .subject-tile > span:nth-child(2) {
   flex: 1;
+}
+
+.subject-tile-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.subject-code {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--ink-faint);
+  letter-spacing: 0.02em;
 }
 
 .subject-icon {
@@ -1282,6 +1396,17 @@ textarea::placeholder {
 .profile-info h1 {
   font-size: 1.5rem;
   font-weight: 800;
+}
+
+.profile-form {
+  gap: 0.75rem;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .tabs {
@@ -1851,6 +1976,15 @@ textarea::placeholder {
   }
 
   .profile-info .meta-item {
+    justify-content: center;
+  }
+
+  .profile-form {
+    width: 100%;
+    text-align: left;
+  }
+
+  .profile-actions {
     justify-content: center;
   }
 

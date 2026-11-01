@@ -1,59 +1,312 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { errorMessage } from "../api/client";
+import { acceptRequest, getMyGroups, getMyRequests, rejectRequest } from "../api/groups";
+import { addMySubject, getSubjectCatalog, removeMySubject, updateProfile } from "../api/profile";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
 import { Avatar, EmptyState } from "../components/ui";
+import { findSubject, normalizeCode, subjectLabel } from "../data/subjects";
 
-export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLogout }) {
-  const [tab, setTab] = useState("created"); // "created" | "participating"
-  const [subjects, setSubjects] = useState(user.subjects);
-  const [newSubject, setNewSubject] = useState("");
-  // Estado de cada solicitud: undefined (pendiente) | "accepted" | "rejected"
-  const [decisions, setDecisions] = useState({});
+// Mismo rango que el registro (Login.jsx) y que valida el backend
+const CURRENT_YEAR = new Date().getFullYear();
+const MIN_ENTRY_YEAR = 1990;
 
-  const findGroup = (id) => groups.find((g) => g.id === id);
-  const pendingCount = myGroups.created
-    .flatMap((c) => c.requests)
-    .filter((r) => !decisions[r.id]).length;
+const byCode = (a, b) => a.code.localeCompare(b.code);
 
-  const addSubject = (e) => {
-    e.preventDefault();
-    const value = newSubject.trim();
-    if (value && !subjects.includes(value)) setSubjects([...subjects, value]);
-    setNewSubject("");
+// Estado de «mis solicitudes»: etiqueta, color y qué significa para quien la envió
+const REQUEST_STATUS = {
+  pendiente: { label: "Pendiente", badge: "badge-soft", note: "Esperando respuesta del creador." },
+  aceptada: { label: "Aceptada", badge: "badge-open", note: "Ya eres integrante: entra al grupo." },
+  rechazada: {
+    label: "Rechazada",
+    badge: "badge-closed",
+    note: "El creador no aceptó tu solicitud.",
+  },
+};
+
+// Fecha y hora con zona del backend, mostrada en la hora local, ej. "29 oct"
+const sentDate = (isoDateTime) =>
+  new Date(isoDateTime).toLocaleDateString("es-CL", { day: "numeric", month: "short" });
+
+// Solicitudes que envió el usuario. Se cargan al abrir la pestaña.
+function MyRequests({ onOpenDetail }) {
+  const [requests, setRequests] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getMyRequests()
+      .then(setRequests)
+      .catch((err) => setError(errorMessage(err)));
+  }, []);
+
+  if (error) {
+    return (
+      <p className="form-error" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (!requests) {
+    return (
+      <p className="muted small" role="status">
+        Cargando tus solicitudes…
+      </p>
+    );
+  }
+  if (requests.length === 0) {
+    return (
+      <EmptyState icon="send" title="No has enviado solicitudes">
+        Busca un grupo de tus ramos y solicita ingreso.
+      </EmptyState>
+    );
+  }
+  return (
+    <div className="stack">
+      {requests.map((r) => {
+        const status = REQUEST_STATUS[r.status];
+        return (
+          <GroupCard
+            key={r.id}
+            group={r.group}
+            onOpen={() => onOpenDetail(r.group)}
+            footer={
+              <div className="requests">
+                <div className="requests-head">
+                  <span className={`badge ${status.badge}`}>{status.label}</span>
+                  <span className="muted small">
+                    Enviada el {sentDate(r.sentAt)}. {status.note}
+                  </span>
+                </div>
+              </div>
+            }
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+// Datos del perfil académico (nombre, carrera y año de ingreso). El correo y la universidad
+// salen del correo institucional y no se editan.
+function ProfileForm({ user, onSaved, onCancel }) {
+  const [name, setName] = useState(user.name);
+  const [career, setCareer] = useState(user.career ?? "");
+  const [entryYear, setEntryYear] = useState(user.entryYear ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const validationError = () => {
+    if (!name.trim() || !career.trim() || !entryYear) return "Completa todos los campos.";
+    const year = Number(entryYear);
+    if (year < MIN_ENTRY_YEAR || year > CURRENT_YEAR) {
+      return `El año de ingreso debe estar entre ${MIN_ENTRY_YEAR} y ${CURRENT_YEAR}.`;
+    }
+    return "";
   };
 
-  const decide = (requestId, decision) =>
-    setDecisions((prev) => ({ ...prev, [requestId]: decision }));
+  const save = async (e) => {
+    e.preventDefault();
+    const invalid = validationError();
+    if (invalid) {
+      setError(invalid);
+      return;
+    }
+    setSaving(true);
+    try {
+      onSaved(await updateProfile({ name, career, entryYear }));
+    } catch (err) {
+      setError(errorMessage(err));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <form className="profile-info profile-form" onSubmit={save} noValidate>
+      <label className="field">
+        <span className="field-label">Nombre</span>
+        <div className="input-wrap">
+          <Icon name="user" size={18} />
+          <input value={name} maxLength={120} onChange={(e) => setName(e.target.value)} />
+        </div>
+      </label>
+      <div className="field-row">
+        <label className="field">
+          <span className="field-label">Carrera</span>
+          <div className="input-wrap">
+            <Icon name="book" size={18} />
+            <input value={career} maxLength={120} onChange={(e) => setCareer(e.target.value)} />
+          </div>
+        </label>
+        <label className="field">
+          <span className="field-label">Año de ingreso</span>
+          <div className="input-wrap">
+            <Icon name="calendar" size={18} />
+            <input
+              type="number"
+              inputMode="numeric"
+              min={MIN_ENTRY_YEAR}
+              max={CURRENT_YEAR}
+              value={entryYear}
+              onChange={(e) => setEntryYear(e.target.value)}
+            />
+          </div>
+        </label>
+      </div>
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="profile-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>
+          Cancelar
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? "Guardando…" : "Guardar"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// onOpen: abre el espacio de un grupo propio; onOpenDetail: el detalle de un grupo al que
+// enviaste una solicitud
+export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdateUser, onLogout }) {
+  const [tab, setTab] = useState("created"); // "created" | "participating" | "requests"
+  const [editing, setEditing] = useState(false);
+  // Asignaturas que ya existen en la universidad; crece cuando el usuario agrega una sigla nueva.
+  const [catalog, setCatalog] = useState([]);
+  const [newCode, setNewCode] = useState("");
+  const [newName, setNewName] = useState("");
+  const [subjectError, setSubjectError] = useState("");
+  const [savingSubject, setSavingSubject] = useState(false);
+  // «Mis grupos»: { created, participating }; null mientras carga
+  const [myGroups, setMyGroups] = useState(null);
+  const [groupsError, setGroupsError] = useState("");
+  // Solicitud que se está aceptando o rechazando
+  const [answering, setAnswering] = useState(null);
+  const [requestError, setRequestError] = useState("");
+
+  useEffect(() => {
+    getMyGroups()
+      .then(setMyGroups)
+      .catch((err) => setGroupsError(errorMessage(err)));
+  }, []);
+
+  useEffect(() => {
+    getSubjectCatalog()
+      .then(setCatalog)
+      .catch(() => {
+        // Sin catálogo igual se puede agregar: el backend pide el nombre si la sigla es nueva
+      });
+  }, []);
+
+  const subjects = user.subjects;
+  const pendingCount = myGroups?.created.reduce((total, g) => total + g.requests.length, 0) ?? 0;
+
+  const match = newCode.trim() ? findSubject(catalog, newCode) : null;
+  const needsName = Boolean(newCode.trim()) && !match;
+  const canAdd = Boolean(newCode.trim()) && (match || newName.trim()) && !savingSubject;
+
+  // "Buscar o crear": si la sigla no existe, el backend crea la asignatura con el nombre escrito.
+  const addSubject = async (e) => {
+    e.preventDefault();
+    if (!canAdd) return;
+    setSubjectError("");
+    setSavingSubject(true);
+    try {
+      const subject = await addMySubject(normalizeCode(newCode), match ? "" : newName);
+      if (!subjects.some((s) => s.id === subject.id)) {
+        onUpdateUser({ subjects: [...subjects, subject].sort(byCode) });
+      }
+      if (!catalog.some((s) => s.id === subject.id)) setCatalog([...catalog, subject].sort(byCode));
+      setNewCode("");
+      setNewName("");
+    } catch (err) {
+      setSubjectError(errorMessage(err));
+    } finally {
+      setSavingSubject(false);
+    }
+  };
+
+  const removeSubject = async (subject) => {
+    setSubjectError("");
+    try {
+      await removeMySubject(subject.id);
+      onUpdateUser({ subjects: subjects.filter((s) => s.id !== subject.id) });
+    } catch (err) {
+      setSubjectError(errorMessage(err));
+    }
+  };
+
+  // call: acceptRequest o rejectRequest; ambas devuelven el grupo actualizado
+  const answer = async (requestId, call) => {
+    setRequestError("");
+    setAnswering(requestId);
+    try {
+      const updated = await call(requestId);
+      setMyGroups((prev) => ({
+        ...prev,
+        created: prev.created.map((g) => (g.id === updated.id ? updated : g)),
+      }));
+    } catch (err) {
+      setRequestError(errorMessage(err));
+      // Puede que el grupo haya cambiado (se llenó el cupo): se recarga la lista
+      getMyGroups()
+        .then(setMyGroups)
+        .catch(() => {});
+    } finally {
+      setAnswering(null);
+    }
+  };
 
   return (
     <div className="page">
       <section className="card profile-card">
         <Avatar name={user.name} size="lg" />
-        <div className="profile-info">
-          <h1>{user.name}</h1>
-          <p className="muted">
-            {user.career} · {user.university}
-          </p>
-          <p className="muted small meta-item">
-            <Icon name="mail" size={16} /> {user.email}
-          </p>
-        </div>
-        <button type="button" className="btn btn-ghost" onClick={onLogout}>
-          <Icon name="logout" size={18} /> Cerrar sesión
-        </button>
+        {editing ? (
+          <ProfileForm
+            user={user}
+            onSaved={(updated) => {
+              onUpdateUser(updated);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <>
+            <div className="profile-info">
+              <h1>{user.name}</h1>
+              <p className="muted">
+                {user.career} · Ingreso {user.entryYear} · {user.university}
+              </p>
+              <p className="muted small meta-item">
+                <Icon name="mail" size={16} /> {user.email}
+              </p>
+            </div>
+            <div className="profile-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setEditing(true)}>
+                Editar perfil
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={onLogout}>
+                <Icon name="logout" size={18} /> Cerrar sesión
+              </button>
+            </div>
+          </>
+        )}
       </section>
 
       <section className="card">
         <h2 className="section-title">Asignaturas del semestre</h2>
         <p className="muted small">Las usamos para sugerirte grupos.</p>
         <div className="chip-row">
-          {subjects.map((s) => (
-            <span key={s} className="chip chip-removable">
-              {s}
+          {subjects.map((subject) => (
+            <span key={subject.id} className="chip chip-removable">
+              {subjectLabel(subject)}
               <button
                 type="button"
-                aria-label={`Quitar ${s}`}
-                onClick={() => setSubjects(subjects.filter((x) => x !== s))}
+                aria-label={`Quitar ${subject.code}`}
+                onClick={() => removeSubject(subject)}
               >
                 <Icon name="x" size={14} strokeWidth={2.2} />
               </button>
@@ -61,16 +314,41 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
           ))}
           <form className="chip-add" onSubmit={addSubject}>
             <input
-              placeholder="Agregar asignatura"
-              value={newSubject}
-              onChange={(e) => setNewSubject(e.target.value)}
-              aria-label="Agregar asignatura"
+              list="profile-subject-codes"
+              placeholder="Agregar sigla"
+              autoCapitalize="characters"
+              maxLength={20}
+              value={newCode}
+              onChange={(e) => setNewCode(e.target.value)}
+              aria-label="Sigla de la asignatura"
             />
-            <button type="submit" aria-label="Agregar" disabled={!newSubject.trim()}>
+            <datalist id="profile-subject-codes">
+              {catalog.map((s) => (
+                <option key={s.id} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </datalist>
+            {needsName && (
+              <input
+                className="chip-add-name"
+                placeholder="Nombre del ramo"
+                maxLength={200}
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                aria-label="Nombre del ramo"
+              />
+            )}
+            <button type="submit" aria-label="Agregar" disabled={!canAdd}>
               <Icon name="plus" size={16} strokeWidth={2.2} />
             </button>
           </form>
         </div>
+        {subjectError && (
+          <p className="form-error" role="alert">
+            {subjectError}
+          </p>
+        )}
       </section>
 
       <section>
@@ -97,85 +375,109 @@ export default function Profile({ user, groups, myGroups, onOpen, onCreate, onLo
           >
             Participo
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "requests"}
+            className={`tab ${tab === "requests" ? "tab-active" : ""}`}
+            onClick={() => setTab("requests")}
+          >
+            Mis solicitudes
+          </button>
         </div>
 
-        {tab === "created" && (
-          <div className="stack">
-            {myGroups.created.map(({ groupId, requests }) => {
-              const group = findGroup(groupId);
-              const pending = requests.filter((r) => !decisions[r.id]);
-              return (
-                <GroupCard
-                  key={groupId}
-                  group={group}
-                  onOpen={onOpen}
-                  ctaLabel="Abrir grupo"
-                  footer={
-                    <div className="requests">
-                      <div className="requests-head">
-                        <Icon name="bell" size={18} />
-                        {pending.length > 0
-                          ? `${pending.length} ${pending.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`
-                          : "Sin solicitudes pendientes"}
-                      </div>
-                      <ul>
-                        {requests.map((r) => (
-                          <li key={r.id} className="request">
-                            <Avatar name={r.name} size="sm" />
-                            <div className="request-who">
-                              <strong>{r.name}</strong>
-                              <span className="muted small">{r.career}</span>
-                            </div>
-                            {decisions[r.id] ? (
-                              <span
-                                className={`badge ${decisions[r.id] === "accepted" ? "badge-open" : "badge-closed"}`}
-                              >
-                                {decisions[r.id] === "accepted" ? "Aceptado" : "Rechazado"}
-                              </span>
-                            ) : (
-                              <div className="request-actions">
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-ghost"
-                                  onClick={() => decide(r.id, "rejected")}
-                                >
-                                  Rechazar
-                                </button>
-                                <button
-                                  type="button"
-                                  className="btn btn-sm btn-primary"
-                                  onClick={() => decide(r.id, "accepted")}
-                                >
-                                  Aceptar
-                                </button>
-                              </div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  }
-                />
-              );
-            })}
-            <button type="button" className="add-tile" onClick={onCreate}>
-              <Icon name="plus" size={20} /> Crear otro grupo
-            </button>
-          </div>
+        {requestError && (
+          <p className="form-error" role="alert">
+            {requestError}
+          </p>
         )}
 
-        {tab === "participating" &&
-          (myGroups.participating.length > 0 ? (
-            <div className="group-grid">
-              {myGroups.participating.map((id) => (
-                <GroupCard key={id} group={findGroup(id)} onOpen={onOpen} ctaLabel="Abrir grupo" />
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon="users" title="Aún no participas en grupos">
-              Busca un grupo de tus ramos y solicita ingreso.
-            </EmptyState>
-          ))}
+        {tab === "requests" ? (
+          <MyRequests onOpenDetail={onOpenDetail} />
+        ) : groupsError ? (
+          <p className="form-error" role="alert">
+            {groupsError}
+          </p>
+        ) : !myGroups ? (
+          <p className="muted small" role="status">
+            Cargando tus grupos…
+          </p>
+        ) : tab === "created" ? (
+          <div className="stack">
+            {myGroups.created.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                onOpen={() => onOpen(group)}
+                ctaLabel="Abrir grupo"
+                footer={
+                  <div className="requests">
+                    <div className="requests-head">
+                      <Icon name="bell" size={18} />
+                      {group.requests.length > 0
+                        ? `${group.requests.length} ${group.requests.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`
+                        : "Sin solicitudes pendientes"}
+                    </div>
+                    <ul>
+                      {group.requests.map((r) => (
+                        <li key={r.id} className="request">
+                          <Avatar name={r.name} size="sm" />
+                          <div className="request-who">
+                            <strong>{r.name}</strong>
+                            <span className="muted small">{r.career}</span>
+                            {r.message && <span className="small">“{r.message}”</span>}
+                          </div>
+                          <div className="request-actions">
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-ghost"
+                              aria-label={`Rechazar a ${r.name}`}
+                              disabled={answering !== null}
+                              onClick={() => answer(r.id, rejectRequest)}
+                            >
+                              Rechazar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-sm btn-primary"
+                              aria-label={`Aceptar a ${r.name}`}
+                              disabled={answering !== null}
+                              onClick={() => answer(r.id, acceptRequest)}
+                            >
+                              Aceptar
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                }
+              />
+            ))}
+            {myGroups.created.length === 0 && (
+              <p className="muted small">Aún no has creado grupos.</p>
+            )}
+            <button type="button" className="add-tile" onClick={onCreate}>
+              <Icon name="plus" size={20} />{" "}
+              {myGroups.created.length ? "Crear otro grupo" : "Crear un grupo"}
+            </button>
+          </div>
+        ) : myGroups.participating.length > 0 ? (
+          <div className="group-grid">
+            {myGroups.participating.map((group) => (
+              <GroupCard
+                key={group.id}
+                group={group}
+                onOpen={() => onOpen(group)}
+                ctaLabel="Abrir grupo"
+              />
+            ))}
+          </div>
+        ) : (
+          <EmptyState icon="users" title="Aún no participas en grupos">
+            Busca un grupo de tus ramos y solicita ingreso.
+          </EmptyState>
+        )}
       </section>
     </div>
   );

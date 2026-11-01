@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { askAssistant } from "../api/assistant";
+import { getGroup } from "../api/groups";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
-import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
 // Espacio interno de un grupo: asistente de estudio (chatbot) a la izquierda y
 // archivos compartidos a la derecha. El asistente responde usando esos archivos.
-// Todo vive en estado local (maqueta): no se envía nada al backend.
+// Los archivos y el asistente viven en estado local (maqueta): no se envían al backend.
 
 const SUGGESTIONS = ["Resume los archivos", "Hazme preguntas de práctica", "Explícame un concepto"];
 
@@ -32,6 +33,8 @@ const welcome = (subject) => ({
 export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
   const me = user.name.split(" ")[0];
   const [files, setFiles] = useState(initialFiles);
+  // Desde el detalle llegan los integrantes; desde "Mis grupos" no, y se piden al backend
+  const [integrants, setIntegrants] = useState(group.integrants ?? null);
   const [messages, setMessages] = useState(() => [welcome(group.subject)]);
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
@@ -40,6 +43,19 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
   const chatEnd = useRef(null);
   // Contador para ids locales; parte alto para no chocar con los ids de ejemplo.
   const nextId = useRef(10_000);
+
+  useEffect(() => {
+    if (group.integrants) return;
+    let active = true;
+    getGroup(group.id)
+      .then((detail) => active && setIntegrants(detail.integrants))
+      .catch(() => {
+        // Sin integrantes el espacio igual funciona: solo no se muestran los avatares
+      });
+    return () => {
+      active = false;
+    };
+  }, [group]);
 
   useEffect(() => {
     chatEnd.current?.scrollIntoView?.({ behavior: "smooth", block: "end" });
@@ -116,23 +132,25 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
           <h1>{group.subject}</h1>
           <div className="meta">
             <span className="meta-item">
-              <Icon name={group.modality === "online" ? "monitor" : "mapPin"} size={16} />
-              {modalityLabel(group.modality)} · {group.place}
+              <Icon name={group.isOnline ? "monitor" : "mapPin"} size={16} />
+              {modalityLabel(group.isOnline)} · {meetingPoint(group)}
             </span>
             <span className="meta-item">
               <Icon name="calendar" size={16} />
-              {dayLabel(group.day)} · {blockLabel(group.block)}
+              {scheduleLabel(group.schedule)}
             </span>
           </div>
         </div>
-        <div className="avatar-stack" aria-label={`${group.integrants.length} integrantes`}>
-          {group.integrants.slice(0, 4).map((m) => (
-            <Avatar key={m.name} name={m.name} size="sm" />
-          ))}
-          {group.integrants.length > 4 && (
-            <span className="avatar avatar-sm avatar-more">+{group.integrants.length - 4}</span>
-          )}
-        </div>
+        {integrants && (
+          <div className="avatar-stack" aria-label={`${integrants.length} integrantes`}>
+            {integrants.slice(0, 4).map((m) => (
+              <Avatar key={m.id ?? m.name} name={m.name} size="sm" />
+            ))}
+            {integrants.length > 4 && (
+              <span className="avatar avatar-sm avatar-more">+{integrants.length - 4}</span>
+            )}
+          </div>
+        )}
       </header>
 
       <div className="room-layout">

@@ -1,32 +1,128 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { filterGroups } from "./data/filters";
-import { groups } from "./data/mock";
+import { getToken, setToken } from "./api/client";
 
-const login = () => {
-  render(<App />);
-  // El primero es la pestaña; el último es el botón de envío del formulario.
-  fireEvent.click(screen.getAllByRole("button", { name: "Iniciar sesión" }).at(-1));
-  fireEvent.click(screen.getByRole("button", { name: "Ya verifiqué mi correo" }));
+// Usuario tal como lo devuelve el backend (nombres del modelo de datos)
+const apiUser = {
+  id: 1,
+  email: "benjamin.soto@uc.cl",
+  nombre: "Benjamín Soto",
+  universidad: "Pontificia Universidad Católica de Chile",
+  carrera: "Ingeniería Civil Informática",
+  anio_ingreso: 2023,
+  email_verificado_en: "2026-10-01T12:00:00Z",
+};
+const session = { access_token: "jwt-de-prueba", token_type: "bearer", usuario: apiUser };
+
+// Grupos tal como los devuelve GET /api/grupos
+const apiGroup = (id, sigla, nombre, fields = {}) => ({
+  id,
+  asignatura: { id, sigla, nombre },
+  descripcion: "Repaso para el certamen.",
+  es_online: false,
+  cupo_maximo: 4,
+  miembros: 2,
+  abierto: true,
+  vigente_hasta: "2026-12-04",
+  horarios: [{ dia_semana: 1, es_manana: false }],
+  ...fields,
+});
+const apiGroups = [
+  apiGroup(11, "MAT1620", "Cálculo II"),
+  apiGroup(12, "FIS1513", "Física I", { es_online: true }),
+  apiGroup(13, "MAT1620", "Cálculo II", { miembros: 2, abierto: false }),
+];
+
+// Detalle tal como lo devuelve GET /api/grupos/{id}: el usuario no es integrante
+const apiDetail = (group, fields = {}) => ({
+  ...group,
+  creador: "Ana Rojas",
+  integrantes: [
+    { id: 7, nombre: "Ana Rojas", carrera: "Ingeniería Civil", es_creador: true },
+    { id: 8, nombre: "Luis Castro", carrera: "Ingeniería Comercial", es_creador: false },
+  ],
+  es_miembro: false,
+  solicitud_pendiente: false,
+  lugar: null,
+  enlace: null,
+  ...fields,
+});
+
+// Grupo tal como lo devuelve GET /api/grupos/mios: el usuario es integrante
+const apiMyGroup = (group, fields = {}) => ({
+  ...group,
+  es_creador: false,
+  lugar: "Biblioteca central, sala 2",
+  enlace: null,
+  solicitudes: [],
+  ...fields,
+});
+
+// Búsqueda simulada: filtra por el texto de ?q= (el backend también ignora tildes)
+const searchRoute = (options, url) => {
+  const q = (new URL(url).searchParams.get("q") ?? "").toLowerCase();
+  const plain = (text) =>
+    text
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  const matches = (g) =>
+    plain(g.asignatura.nombre).includes(plain(q)) || g.asignatura.sigla.toLowerCase().includes(q);
+  return [200, apiGroups.filter(matches)];
 };
 
-const mockFetchOk = () =>
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({ message: "Hola desde el backend de Coestudia" }),
-    }),
-  );
+const DEFAULT_ROUTES = {
+  "GET /api/hello": () => [200, { message: "Hola desde el backend de Coestudia" }],
+  "POST /api/auth/login": () => [200, session],
+  "POST /api/auth/registro": () => [201, { ...apiUser, email_verificado_en: null }],
+  "POST /api/auth/verificar": () => [200, session],
+  "POST /api/auth/reenviar-verificacion": () => [202, { message: "ok" }],
+  "GET /api/auth/me": () => [200, apiUser],
+  "GET /api/grupos": searchRoute,
+  ...Object.fromEntries(
+    apiGroups.map((g) => [`GET /api/grupos/${g.id}`, () => [200, apiDetail(g)]]),
+  ),
+  "GET /api/grupos/mios": () => [200, { creados: [], participo: [] }],
+  "GET /api/solicitudes/mias": () => [200, []],
+  "GET /api/perfil/asignaturas": () => [200, []],
+  "GET /api/asignaturas": () => [200, []],
+};
+
+// Simula el backend: cada ruta "MÉTODO /ruta" responde [status, json]. Devuelve el mock de fetch.
+const mockApi = (routes = {}) => {
+  const handlers = { ...DEFAULT_ROUTES, ...routes };
+  const fetchMock = vi.fn((url, options = {}) => {
+    const key = `${options.method ?? "GET"} ${new URL(url).pathname}`;
+    const [status, data] = handlers[key]?.(options, url) ?? [404, { detail: "No existe" }];
+    return Promise.resolve({ ok: status < 300, status, json: () => Promise.resolve(data) });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+};
+
+const fillLogin = (email = apiUser.email, password = "clave-segura-1") => {
+  fireEvent.change(screen.getByPlaceholderText("nombre@uc.cl"), { target: { value: email } });
+  fireEvent.change(screen.getByLabelText("Contraseña"), { target: { value: password } });
+  // El primero es la pestaña; el último es el botón de envío del formulario.
+  fireEvent.click(screen.getAllByRole("button", { name: "Iniciar sesión" }).at(-1));
+};
+
+const login = async () => {
+  render(<App />);
+  fillLogin();
+  await screen.findByRole("heading", { name: /Hola, Benjamín/ });
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  setToken(null);
+  window.history.replaceState(null, "", "/");
+});
 
 describe("Conexión con el backend", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
   it("muestra el mensaje del backend cuando la llamada funciona", async () => {
-    mockFetchOk();
+    mockApi();
     render(<App />);
 
     expect(screen.getByText("Conectando con el backend…")).toBeInTheDocument();
@@ -43,90 +139,890 @@ describe("Conexión con el backend", () => {
 });
 
 describe("App", () => {
-  beforeEach(mockFetchOk);
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  beforeEach(() => {
+    mockApi();
   });
 
-  it("muestra el inicio de sesión, pide verificar el correo y entra al buscador", () => {
-    render(<App />);
-    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+  it("inicia sesión, guarda el token y entra al buscador", async () => {
+    await login();
+    expect(getToken()).toBe("jwt-de-prueba");
+  });
 
-    fireEvent.change(screen.getByPlaceholderText("nombre@uc.cl"), {
-      target: { value: "camila@uc.cl" },
+  it("busca un ramo, abre un grupo, solicita ingreso y la cancela", async () => {
+    const fetchMock = mockApi({
+      "POST /api/grupos/12/solicitudes": () => [
+        201,
+        apiDetail(apiGroups[1], { solicitud_pendiente: true }),
+      ],
+      "DELETE /api/grupos/12/solicitudes": () => [200, apiDetail(apiGroups[1])],
     });
-    fireEvent.click(screen.getAllByRole("button", { name: "Iniciar sesión" }).at(-1));
-
-    expect(screen.getByRole("heading", { name: "Verifica tu correo" })).toBeInTheDocument();
-    expect(screen.getByText("camila@uc.cl")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Reenviar correo" }));
-    expect(screen.getByText(/Te reenviamos el correo/)).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Ya verifiqué mi correo" }));
-
-    expect(screen.getByRole("heading", { name: /Hola, Benjamín/ })).toBeInTheDocument();
-  });
-
-  it("busca un ramo, abre un grupo y solicita ingreso", () => {
-    login();
+    await login();
 
     const input = screen.getByLabelText("Buscar asignatura");
     // Física I: el usuario aún no es integrante de ese grupo.
     fireEvent.change(input, { target: { value: "fisica" } });
     fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
 
-    expect(screen.getByText("Encontramos 1 grupo")).toBeInTheDocument();
+    expect(await screen.findByText("Encontramos 1 grupo")).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole("button", { name: /Física I/ })[0]);
+    // Se puede pedir cuando llega el detalle
+    await screen.findByText("Luis Castro");
     fireEvent.click(screen.getByRole("button", { name: "Solicitar ingreso" }));
 
-    expect(screen.getByText(/Solicitud enviada/)).toBeInTheDocument();
+    expect(await screen.findByText(/Solicitud enviada/)).toBeInTheDocument();
+    const posts = fetchMock.mock.calls.filter(([, o]) => o?.method === "POST");
+    expect(new URL(posts.at(-1)[0]).pathname).toBe("/api/grupos/12/solicitudes");
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar solicitud" }));
+    expect(await screen.findByRole("button", { name: "Solicitar ingreso" })).toBeEnabled();
   });
 
-  it("permite aceptar solicitudes en Mis grupos", () => {
-    login();
+  it("muestra el error si no se puede solicitar ingreso", async () => {
+    mockApi({
+      "POST /api/grupos/12/solicitudes": () => [409, { detail: "Este grupo ya no tiene cupos." }],
+    });
+    await login();
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: "fisica" } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Física I/ }))[0]);
+    await screen.findByText("Luis Castro");
+    fireEvent.click(screen.getByRole("button", { name: "Solicitar ingreso" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya no tiene cupos");
+  });
+
+  it("permite aceptar y rechazar solicitudes en Mis grupos", async () => {
+    const request = (id, nombre) => ({
+      id,
+      usuario: { id, nombre, carrera: "Ingeniería Civil" },
+      mensaje: null,
+      creada_en: "2026-10-29T12:00:00Z",
+    });
+    const mine = apiMyGroup(apiGroups[0], {
+      es_creador: true,
+      solicitudes: [
+        { ...request(31, "Pedro Rojas"), mensaje: "Voy atrasado con series" },
+        request(32, "Javiera Muñoz"),
+      ],
+    });
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }],
+      "POST /api/solicitudes/31/aceptar": () => [
+        200,
+        { ...mine, miembros: 3, solicitudes: [mine.solicitudes[1]] },
+      ],
+      "POST /api/solicitudes/32/rechazar": () => [200, { ...mine, miembros: 3, solicitudes: [] }],
+    });
+    await login();
     fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
 
-    expect(screen.getByText("2 solicitudes pendientes")).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole("button", { name: "Aceptar" })[0]);
+    expect(await screen.findByText("2 solicitudes pendientes")).toBeInTheDocument();
+    expect(screen.getByText("“Voy atrasado con series”")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar a Pedro Rojas" }));
+    expect(await screen.findByText("1 solicitud pendiente")).toBeInTheDocument();
+    expect(screen.queryByText("Pedro Rojas")).not.toBeInTheDocument();
+    expect(screen.getByText("3/4 cupos")).toBeInTheDocument();
 
-    expect(screen.getByText("Aceptado")).toBeInTheDocument();
-    expect(screen.getByText("1 solicitud pendiente")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Rechazar a Javiera Muñoz" }));
+    expect(await screen.findByText("Sin solicitudes pendientes")).toBeInTheDocument();
+    const answered = fetchMock.mock.calls
+      .filter(([, o]) => o?.method === "POST")
+      .map(([url]) => new URL(url).pathname);
+    expect(answered).toEqual([
+      "/api/auth/login",
+      "/api/solicitudes/31/aceptar",
+      "/api/solicitudes/32/rechazar",
+    ]);
+  });
+
+  it("muestra el error al responder una solicitud y recarga la lista", async () => {
+    const mine = apiMyGroup(apiGroups[0], {
+      es_creador: true,
+      solicitudes: [
+        {
+          id: 31,
+          usuario: { id: 31, nombre: "Pedro Rojas", carrera: null },
+          mensaje: null,
+          creada_en: "2026-10-29T12:00:00Z",
+        },
+      ],
+    });
+    let loads = 0;
+    mockApi({
+      "GET /api/grupos/mios": () => {
+        loads += 1;
+        return [200, { creados: [mine], participo: [] }];
+      },
+      "POST /api/solicitudes/31/aceptar": () => [409, { detail: "El grupo ya no tiene cupos." }],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Aceptar a Pedro Rojas" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("El grupo ya no tiene cupos.");
+    await waitFor(() => expect(loads).toBe(2));
+  });
+
+  it("muestra mis solicitudes con su estado y abre el detalle", async () => {
+    const sent = (id, group, estado, fields = {}) => ({
+      id,
+      estado,
+      mensaje: null,
+      creada_en: "2026-10-29T15:00:00Z",
+      respondida_en: estado === "pendiente" ? null : "2026-10-29T18:00:00Z",
+      grupo: group,
+      ...fields,
+    });
+    mockApi({
+      "GET /api/solicitudes/mias": () => [
+        200,
+        [
+          sent(41, apiGroups[1], "pendiente"),
+          sent(42, apiGroups[0], "aceptada"),
+          sent(43, apiGroups[2], "rechazada"),
+        ],
+      ],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByText("Pendiente")).toBeInTheDocument();
+    expect(screen.getByText(/Esperando respuesta del creador/)).toBeInTheDocument();
+    expect(screen.getByText("Aceptada")).toBeInTheDocument();
+    expect(screen.getByText(/Ya eres integrante/)).toBeInTheDocument();
+    expect(screen.getByText("Rechazada")).toBeInTheDocument();
+    expect(screen.getAllByText(/Enviada el 29 oct/)).toHaveLength(3);
+
+    // Al tocar una, se abre el detalle del grupo
+    fireEvent.click(screen.getByRole("button", { name: /Física I/ }));
+    expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
+    expect(screen.getByText("Grupo de estudio · FIS1513")).toBeInTheDocument();
+  });
+
+  it("sin solicitudes enviadas invita a buscar grupos", async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByText("No has enviado solicitudes")).toBeInTheDocument();
+  });
+
+  it("muestra el error si no cargan mis solicitudes", async () => {
+    mockApi({ "GET /api/solicitudes/mias": () => [500, { detail: "Error interno" }] });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Error interno");
+  });
+
+  it("muestra el error si no cargan los grupos", async () => {
+    mockApi({ "GET /api/grupos/mios": () => [500, { detail: "Error interno" }] });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Error interno");
+  });
+
+  it("sin grupos creados invita a crear uno", async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+
+    expect(await screen.findByText("Aún no has creado grupos.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Crear un grupo/ }));
+    expect(screen.getByRole("heading", { name: "Crear grupo" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    expect(await screen.findByText("Aún no participas en grupos")).toBeInTheDocument();
+  });
+
+  it("muestra el error si no se puede cancelar la solicitud", async () => {
+    mockApi({
+      "GET /api/grupos/12": () => [200, apiDetail(apiGroups[1], { solicitud_pendiente: true })],
+      "DELETE /api/grupos/12/solicitudes": () => [
+        404,
+        { detail: "No tienes una solicitud pendiente en este grupo." },
+      ],
+    });
+    await login();
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: "fisica" } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+    fireEvent.click((await screen.findAllByRole("button", { name: /Física I/ }))[0]);
+
+    // Al recargar el detalle sigue la solicitud enviada antes
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar solicitud" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("No tienes una solicitud pendiente");
+  });
+});
+
+describe("Registro", () => {
+  const openRegister = () => {
+    render(<App />);
+    fireEvent.click(screen.getByRole("tab", { name: "Crear cuenta" }));
+  };
+  const submit = () =>
+    fireEvent.click(screen.getAllByRole("button", { name: "Crear cuenta" }).at(-1));
+  const fill = (label, value) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const fillForm = (email = "camila@uc.cl") => {
+    fill("Nombre completo", "Camila Pérez");
+    fill(/Correo UC/, email);
+    fill("Carrera", "Ingeniería Civil");
+    fill("Año de ingreso", "2024");
+    fill("Contraseña", "Clave-segura-1");
+  };
+
+  it("pide todos los datos, deduce la universidad y exige aceptar los términos", async () => {
+    const fetchMock = mockApi();
+    openRegister();
+    submit();
+    expect(screen.getByRole("alert")).toHaveTextContent("Completa todos los campos.");
+
+    fillForm();
+    expect(screen.getByText("Pontificia Universidad Católica de Chile")).toBeInTheDocument();
+
+    submit();
+    expect(screen.getByRole("alert")).toHaveTextContent("Debes aceptar los términos");
+
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
+    expect(await screen.findByRole("heading", { name: "Verifica tu correo" })).toBeInTheDocument();
+    expect(screen.getByText("camila@uc.cl")).toBeInTheDocument();
+
+    const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/api/auth/registro"));
+    expect(JSON.parse(options.body)).toEqual({
+      email: "camila@uc.cl",
+      password: "Clave-segura-1",
+      nombre: "Camila Pérez",
+      carrera: "Ingeniería Civil",
+      anio_ingreso: 2024,
+      acepta_terminos: true,
+    });
+  });
+
+  it("permite corregir el correo sin volver a llenar el registro", async () => {
+    const fetchMock = mockApi();
+    openRegister();
+    fillForm("camila@uc.cl");
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
+    await screen.findByRole("heading", { name: "Verifica tu correo" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Corregir el correo" }));
+
+    expect(screen.getByRole("heading", { name: "Crea tu cuenta" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Nombre completo")).toHaveValue("Camila Pérez");
+    expect(screen.getByLabelText("Carrera")).toHaveValue("Ingeniería Civil");
+    expect(screen.getByLabelText("Año de ingreso")).toHaveValue(2024);
+    // El correo y la contraseña se vuelven a escribir
+    expect(screen.getByLabelText(/Correo UC/)).toHaveValue("");
+    expect(screen.getByLabelText("Contraseña")).toHaveValue("");
+
+    fill(/Correo UC/, "camila.perez@uc.cl");
+    fill("Contraseña", "Clave-segura-1");
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
+    expect(await screen.findByText("camila.perez@uc.cl")).toBeInTheDocument();
+    const registers = fetchMock.mock.calls.filter(([url]) => url.endsWith("/api/auth/registro"));
+    expect(JSON.parse(registers[1][1].body).email).toBe("camila.perez@uc.cl");
+  });
+
+  it("rechaza correos de dominios no habilitados", () => {
+    mockApi();
+    openRegister();
+    fillForm("camila@gmail.com");
+    submit();
+
+    expect(screen.getByRole("alert")).toHaveTextContent("solo se aceptan correos @uc.cl");
+  });
+
+  it.each(["Corta1", "sin-mayuscula-1", "SIN-MINUSCULA-1", "Sin-numero"])(
+    "rechaza la contraseña débil %s",
+    (password) => {
+      mockApi();
+      openRegister();
+      fillForm();
+      fill("Contraseña", password);
+      submit();
+
+      expect(screen.getByRole("alert")).toHaveTextContent("cumplir todos los requisitos");
+    },
+  );
+
+  it("marca los requisitos de la contraseña a medida que se cumplen", () => {
+    mockApi();
+    openRegister();
+    const rules = screen.getByRole("list", { name: "Requisitos de la contraseña" });
+    const ok = () =>
+      within(rules)
+        .getAllByRole("listitem")
+        .filter((li) => li.className === "rule-ok");
+
+    expect(ok()).toHaveLength(0);
+    fill("Contraseña", "abc");
+    expect(ok().map((li) => li.textContent)).toEqual(["Una minúscula"]);
+    fill("Contraseña", "Abcdefg1");
+    expect(ok()).toHaveLength(4);
+  });
+
+  it("muestra el error del backend si el correo ya tiene cuenta", async () => {
+    mockApi({
+      "POST /api/auth/registro": () => [409, { detail: "Ya existe una cuenta con ese correo." }],
+    });
+    openRegister();
+    fillForm();
+    fireEvent.click(screen.getByLabelText(/Acepto los términos y condiciones/));
+    submit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Ya existe una cuenta");
+  });
+
+  it("no muestra la casilla de términos al iniciar sesión", () => {
+    mockApi();
+    render(<App />);
+    expect(screen.queryByLabelText(/Acepto los términos/)).not.toBeInTheDocument();
+  });
+});
+
+describe("Inicio de sesión y verificación", () => {
+  it("muestra el error si la contraseña es incorrecta", async () => {
+    mockApi({
+      "POST /api/auth/login": () => [401, { detail: "Correo o contraseña incorrectos." }],
+    });
+    render(<App />);
+    fillLogin(apiUser.email, "otra-clave");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Correo o contraseña incorrectos.");
+    expect(getToken()).toBeNull();
+  });
+
+  it("avisa cuando hay demasiados intentos fallidos", async () => {
+    mockApi({
+      "POST /api/auth/login": () => [
+        429,
+        { detail: "Demasiados intentos fallidos. Intenta de nuevo en 15 minutos." },
+      ],
+    });
+    render(<App />);
+    fillLogin();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Demasiados intentos fallidos");
+  });
+
+  it("no envía contraseñas de más de 72 caracteres", () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fillLogin(apiUser.email, "x".repeat(100));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("demasiado larga");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/api/auth/login"))).toBe(false);
+  });
+
+  it("pide verificar el correo si la cuenta no está verificada y permite reenviarlo", async () => {
+    const fetchMock = mockApi({
+      "POST /api/auth/login": () => [403, { detail: "Debes verificar tu correo." }],
+    });
+    render(<App />);
+    fillLogin("camila@uc.cl");
+
+    expect(await screen.findByRole("heading", { name: "Verifica tu correo" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reenviar correo" }));
+    expect(await screen.findByText(/Te reenviamos el correo/)).toBeInTheDocument();
+    const resend = fetchMock.mock.calls.find(([url]) => url.endsWith("/reenviar-verificacion"));
+    expect(JSON.parse(resend[1].body)).toEqual({ email: "camila@uc.cl" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Ya verifiqué mi correo" }));
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+  });
+
+  it("si viene del inicio de sesión, usar otro correo vuelve al inicio de sesión", async () => {
+    mockApi({ "POST /api/auth/login": () => [403, { detail: "Debes verificar tu correo." }] });
+    render(<App />);
+    fillLogin("camila@uc.cl");
+    await screen.findByRole("heading", { name: "Verifica tu correo" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Usar otro correo" }));
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+  });
+
+  it("avisa si no hay conexión con el servidor", async () => {
+    mockApi();
+    const failing = vi.fn((url) =>
+      url.endsWith("/api/hello")
+        ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
+        : Promise.reject(new TypeError("Failed to fetch")),
+    );
+    vi.stubGlobal("fetch", failing);
+    render(<App />);
+    fillLogin();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("No pudimos conectar");
+  });
+
+  it("verifica el correo con el enlace y entra con la sesión iniciada", async () => {
+    const fetchMock = mockApi();
+    window.history.replaceState(null, "", "/?verificar=token-del-correo");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /Hola, Benjamín/ })).toBeInTheDocument();
+    const verify = fetchMock.mock.calls.find(([url]) => url.endsWith("/api/auth/verificar"));
+    expect(JSON.parse(verify[1].body)).toEqual({ token: "token-del-correo" });
+    expect(getToken()).toBe("jwt-de-prueba");
+    // El token se saca de la URL
+    expect(window.location.search).toBe("");
+  });
+
+  it("muestra el error si el enlace de verificación expiró", async () => {
+    mockApi({
+      "POST /api/auth/verificar": () => [400, { detail: "El enlace ya expiró. Pide uno nuevo." }],
+    });
+    window.history.replaceState(null, "", "/?verificar=viejo");
+    render(<App />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("El enlace ya expiró");
+  });
+
+  it("recupera la sesión guardada al recargar", async () => {
+    const fetchMock = mockApi();
+    setToken("jwt-guardado");
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /Hola, Benjamín/ })).toBeInTheDocument();
+    const me = fetchMock.mock.calls.find(([url]) => url.endsWith("/api/auth/me"));
+    expect(me[1].headers.Authorization).toBe("Bearer jwt-guardado");
+  });
+
+  it("vuelve al login si la sesión guardada ya no sirve", async () => {
+    mockApi({ "GET /api/auth/me": () => [401, { detail: "Debes iniciar sesión." }] });
+    setToken("jwt-vencido");
+    render(<App />);
+
+    expect(await screen.findByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+    expect(getToken()).toBeNull();
+  });
+
+  it("cerrar sesión borra el token", async () => {
+    mockApi();
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("button", { name: /Cerrar sesión/ }));
+
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+    expect(getToken()).toBeNull();
+  });
+});
+
+describe("Recuperar contraseña", () => {
+  const RESET_DONE = "Tu contraseña se cambió. Ya puedes iniciar sesión con la nueva.";
+
+  const fillNewPassword = (password, confirmation = password) => {
+    fireEvent.change(screen.getByLabelText("Contraseña nueva"), { target: { value: password } });
+    fireEvent.change(screen.getByLabelText("Repite la contraseña"), {
+      target: { value: confirmation },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Cambiar contraseña" }));
+  };
+
+  it("pide el enlace con el correo que ya estaba escrito", async () => {
+    const fetchMock = mockApi({
+      "POST /api/auth/recuperar-contrasena": () => [202, { message: "ok" }],
+    });
+    render(<App />);
+    fireEvent.change(screen.getByPlaceholderText("nombre@uc.cl"), {
+      target: { value: "camila@uc.cl" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "¿Olvidaste tu contraseña?" }));
+
+    expect(screen.getByRole("heading", { name: "Recupera tu contraseña" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("nombre@uc.cl")).toHaveValue("camila@uc.cl");
+    fireEvent.click(screen.getByRole("button", { name: "Enviar enlace" }));
+
+    expect(await screen.findByText(/Revisa tu bandeja/)).toBeInTheDocument();
+    const sent = fetchMock.mock.calls.find(([url]) => url.endsWith("/recuperar-contrasena"));
+    expect(JSON.parse(sent[1].body)).toEqual({ email: "camila@uc.cl" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Volver a iniciar sesión" }));
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+  });
+
+  it("no pide el enlace sin correo", () => {
+    const fetchMock = mockApi();
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "¿Olvidaste tu contraseña?" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enviar enlace" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Ingresa tu correo.");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/recuperar-contrasena"))).toBe(false);
+  });
+
+  it("cambia la contraseña con el enlace del correo y vuelve al inicio de sesión", async () => {
+    const fetchMock = mockApi({
+      "POST /api/auth/restablecer-contrasena": () => [200, { message: RESET_DONE }],
+    });
+    setToken("jwt-anterior");
+    window.history.replaceState(null, "", "/?restablecer=token-del-correo");
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Elige una contraseña nueva" })).toBeInTheDocument();
+    // El token se saca de la URL
+    expect(window.location.search).toBe("");
+    fillNewPassword("Nueva-clave-1");
+
+    expect(await screen.findByText(RESET_DONE)).toBeInTheDocument();
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+    const reset = fetchMock.mock.calls.find(([url]) => url.endsWith("/restablecer-contrasena"));
+    expect(JSON.parse(reset[1].body)).toEqual({
+      token: "token-del-correo",
+      password: "Nueva-clave-1",
+    });
+    // El cambio cierra las sesiones: no se intenta recuperar la anterior
+    expect(getToken()).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/api/auth/me"))).toBe(false);
+  });
+
+  it("valida la contraseña nueva antes de enviarla", () => {
+    const fetchMock = mockApi();
+    window.history.replaceState(null, "", "/?restablecer=token");
+    render(<App />);
+
+    fillNewPassword("debil");
+    expect(screen.getByRole("alert")).toHaveTextContent("debe cumplir todos los requisitos");
+    fillNewPassword("Nueva-clave-1", "Nueva-clave-2");
+    expect(screen.getByRole("alert")).toHaveTextContent("no coinciden");
+    expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/restablecer-contrasena"))).toBe(
+      false,
+    );
+  });
+
+  it("muestra el error si el enlace expiró", async () => {
+    mockApi({
+      "POST /api/auth/restablecer-contrasena": () => [
+        400,
+        { detail: "El enlace para cambiar la contraseña no es válido o ya expiró. Pide uno nuevo." },
+      ],
+    });
+    window.history.replaceState(null, "", "/?restablecer=viejo");
+    render(<App />);
+    fillNewPassword("Nueva-clave-1");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya expiró");
+  });
+});
+
+describe("Crear grupo", () => {
+  // Grupo que devuelve POST /api/grupos: el creador queda como integrante
+  const created = apiDetail(apiGroup(21, "MAT1620", "Cálculo II", { miembros: 1 }), {
+    creador: "Benjamín Soto",
+    integrantes: [
+      { id: 1, nombre: "Benjamín Soto", carrera: "Ingeniería Civil Informática", es_creador: true },
+    ],
+    es_miembro: true,
+    lugar: "Biblioteca",
+  });
+  let fetchMock;
+
+  beforeEach(() => {
+    fetchMock = mockApi({
+      "GET /api/asignaturas": () => [200, [{ id: 1, sigla: "MAT1620", nombre: "Cálculo II" }]],
+      "POST /api/grupos": () => [201, created],
+      "GET /api/grupos/21": () => [200, created],
+    });
+  });
+
+  // Cuerpo del último POST /api/grupos
+  const sentGroup = () => {
+    const posts = fetchMock.mock.calls.filter(
+      ([url, options]) => options?.method === "POST" && new URL(url).pathname === "/api/grupos",
+    );
+    expect(posts).not.toHaveLength(0);
+    return JSON.parse(posts.at(-1)[1].body);
+  };
+
+  const openCreate = async () => {
+    await login();
+    fireEvent.click(screen.getAllByRole("button", { name: /Crear grupo/ })[0]);
+  };
+  const publish = () => screen.getByRole("button", { name: "Publicar grupo" });
+  const setValidUntil = (value) =>
+    fireEvent.change(screen.getByLabelText(/Vigente hasta/), { target: { value } });
+
+  it("reconoce una sigla existente y pide el lugar si es presencial", async () => {
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "mat 1620" },
+    });
+    expect((await screen.findAllByText("Cálculo II")).length).toBeGreaterThan(0);
+    expect(screen.queryByLabelText(/Nombre del ramo/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    expect(publish()).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    // Sin fecha de vigencia no se puede publicar
+    expect(publish()).toBeDisabled();
+    setValidUntil("2099-12-01");
+    expect(publish()).toBeEnabled();
+    fireEvent.click(publish());
+    expect(await screen.findByText(/Tu grupo de Cálculo II ya está visible/)).toBeInTheDocument();
+    expect(sentGroup()).toEqual({
+      sigla: "MAT1620",
+      descripcion: null,
+      es_online: false,
+      lugar: "Biblioteca",
+      enlace: null,
+      cupo_maximo: 4,
+      vigente_hasta: "2099-12-01",
+      horarios: [{ dia_semana: 0, es_manana: false }],
+    });
+
+    // "Ver mi grupo" abre el detalle, donde ya aparece como integrante
+    fireEvent.click(screen.getByRole("button", { name: "Ver mi grupo" }));
+    expect(await screen.findByText("Biblioteca")).toBeInTheDocument();
+  });
+
+  it("muestra el error del backend y permite reintentar", async () => {
+    mockApi({
+      "GET /api/asignaturas": () => [200, [{ id: 1, sigla: "MAT1620", nombre: "Cálculo II" }]],
+      "POST /api/grupos": () => [422, { detail: "La fecha de vigencia debe ser posterior a hoy." }],
+    });
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "MAT1620" },
+    });
+    await screen.findAllByText("Cálculo II");
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    setValidUntil("2099-12-01");
+    fireEvent.click(publish());
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "La fecha de vigencia debe ser posterior a hoy.",
+    );
+    expect(publish()).toBeEnabled();
+  });
+
+  it("pide el nombre del ramo si la sigla es nueva y el enlace si es online", async () => {
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "IIC2233" },
+    });
+    fireEvent.change(screen.getByLabelText(/Nombre del ramo/), {
+      target: { value: "Programación Avanzada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Online" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    expect(publish()).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/Enlace de la reunión/), {
+      target: { value: "https://meet.google.com/abc" },
+    });
+    setValidUntil("2099-12-01");
+    expect(screen.getByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
+    expect(publish()).toBeEnabled();
+
+    fireEvent.click(publish());
+    await screen.findByText(/ya está visible/);
+    expect(sentGroup()).toMatchObject({
+      sigla: "IIC2233",
+      nombre_asignatura: "Programación Avanzada",
+      es_online: true,
+      lugar: null,
+      enlace: "https://meet.google.com/abc",
+      horarios: [{ dia_semana: 1, es_manana: true }],
+    });
+  });
+
+  it("no acepta una fecha de vigencia pasada", async () => {
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "MAT1620" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+
+    setValidUntil("2020-01-01");
+    expect(publish()).toBeDisabled();
+  });
+});
+
+describe("Perfil", () => {
+  const calculo = { id: 1, sigla: "MAT1620", nombre: "Cálculo II" };
+  const fisica = { id: 2, sigla: "FIS1513", nombre: "Física I" };
+  const software = { id: 3, sigla: "IIC2143", nombre: "Ingeniería de Software" };
+
+  // Backend simulado con «mis asignaturas» y el catálogo de la universidad
+  const profileApi = (routes = {}) => {
+    let mine = [calculo, fisica];
+    const catalog = [calculo, fisica, software];
+    return mockApi({
+      "GET /api/perfil/asignaturas": () => [200, mine],
+      "GET /api/asignaturas": () => [200, catalog],
+      "POST /api/perfil/asignaturas": (options) => {
+        const { sigla, nombre } = JSON.parse(options.body);
+        let subject = catalog.find((s) => s.sigla === sigla);
+        if (!subject && !nombre) return [404, { detail: `${sigla} aún no está en Coestudia.` }];
+        if (!subject) {
+          subject = { id: catalog.length + 1, sigla, nombre };
+          catalog.push(subject);
+        }
+        mine = [...mine, subject];
+        return [201, subject];
+      },
+      "DELETE /api/perfil/asignaturas/1": () => {
+        mine = mine.filter((s) => s.id !== 1);
+        return [204, null];
+      },
+      "PUT /api/perfil": (options) => [200, { ...apiUser, ...JSON.parse(options.body) }],
+      ...routes,
+    });
+  };
+
+  const openProfile = async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    await screen.findByText("MAT1620 · Cálculo II");
+  };
+
+  const calls = (fetchMock, method, path) =>
+    fetchMock.mock.calls.filter(
+      ([url, options = {}]) => (options.method ?? "GET") === method && url.endsWith(path),
+    );
+
+  it("muestra las asignaturas del usuario en el inicio y en el perfil", async () => {
+    profileApi();
+    await login();
+
+    expect(await screen.findByRole("button", { name: /Cálculo II/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    expect(screen.getByText(/Ingreso 2023/)).toBeInTheDocument();
+    expect(screen.getByText("FIS1513 · Física I")).toBeInTheDocument();
+  });
+
+  it("agrega asignaturas por sigla y crea las que no existen", async () => {
+    const fetchMock = profileApi();
+    await openProfile();
+
+    const code = screen.getByLabelText("Sigla de la asignatura");
+    fireEvent.change(code, { target: { value: "iic 2143" } });
+    // Está en el catálogo: no pide el nombre
+    expect(screen.queryByLabelText("Nombre del ramo")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+    expect(await screen.findByText("IIC2143 · Ingeniería de Software")).toBeInTheDocument();
+    expect(JSON.parse(calls(fetchMock, "POST", "/api/perfil/asignaturas")[0][1].body)).toEqual({
+      sigla: "IIC2143",
+    });
+
+    fireEvent.change(code, { target: { value: "IIC2233" } });
+    expect(screen.getByRole("button", { name: "Agregar" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Nombre del ramo"), {
+      target: { value: "Programación Avanzada" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+    expect(await screen.findByText("IIC2233 · Programación Avanzada")).toBeInTheDocument();
+    expect(JSON.parse(calls(fetchMock, "POST", "/api/perfil/asignaturas")[1][1].body)).toEqual({
+      sigla: "IIC2233",
+      nombre: "Programación Avanzada",
+    });
+  });
+
+  it("quita una asignatura", async () => {
+    const fetchMock = profileApi();
+    await openProfile();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quitar MAT1620" }));
+
+    await waitFor(() => expect(screen.queryByText("MAT1620 · Cálculo II")).not.toBeInTheDocument());
+    expect(calls(fetchMock, "DELETE", "/api/perfil/asignaturas/1")).toHaveLength(1);
+  });
+
+  it("muestra el error del backend al agregar", async () => {
+    profileApi({
+      "POST /api/perfil/asignaturas": () => [
+        400,
+        { detail: "Puedes tener como máximo 10 asignaturas." },
+      ],
+    });
+    await openProfile();
+
+    fireEvent.change(screen.getByLabelText("Sigla de la asignatura"), {
+      target: { value: "IIC2143" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Agregar" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("como máximo 10 asignaturas");
+  });
+
+  it("edita la carrera y el año de ingreso", async () => {
+    const fetchMock = profileApi();
+    await openProfile();
+
+    fireEvent.click(screen.getByRole("button", { name: "Editar perfil" }));
+    fireEvent.change(screen.getByLabelText("Carrera"), { target: { value: "Física" } });
+    fireEvent.change(screen.getByLabelText("Año de ingreso"), { target: { value: "1980" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("El año de ingreso debe estar entre");
+    expect(calls(fetchMock, "PUT", "/api/perfil")).toHaveLength(0);
+
+    fireEvent.change(screen.getByLabelText("Año de ingreso"), { target: { value: "2024" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    expect(await screen.findByText(/Física · Ingreso 2024/)).toBeInTheDocument();
+    expect(JSON.parse(calls(fetchMock, "PUT", "/api/perfil")[0][1].body)).toEqual({
+      nombre: "Benjamín Soto",
+      carrera: "Física",
+      anio_ingreso: 2024,
+    });
+    // Las asignaturas se mantienen después de guardar
+    expect(screen.getByText("MAT1620 · Cálculo II")).toBeInTheDocument();
   });
 });
 
 describe("Espacio del grupo", () => {
-  beforeEach(mockFetchOk);
-  afterEach(() => {
-    vi.unstubAllGlobals();
+  beforeEach(() => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+    });
   });
 
-  const openRoom = () => {
-    login();
+  // Se entra desde "Mis grupos" > "Participo"
+  const openRoom = async () => {
+    await login();
     fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
     fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
-    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II.*Abrir grupo/ })[0]);
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
   };
 
-  it("muestra el asistente y los archivos del grupo", () => {
-    openRoom();
+  it("muestra el asistente y el lugar del grupo", async () => {
+    await openRoom();
 
     expect(screen.getByText("Espacio del grupo")).toBeInTheDocument();
     expect(screen.getByText(/Soy el asistente de estudio de Cálculo II/)).toBeInTheDocument();
-    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
-    expect(within(files).getByText("Guía integrales múltiples.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/Biblioteca central, sala 2/)).toBeInTheDocument();
+    // Los integrantes llegan del detalle del grupo
+    expect(await screen.findByLabelText("2 integrantes")).toBeInTheDocument();
   });
 
-  it("responde preguntas usando los archivos y permite subir más", async () => {
-    openRoom();
-
-    fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
-      target: { value: "Resume los archivos" },
+  it("funciona aunque no carguen los integrantes", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11": () => [500, { detail: "Error interno" }],
     });
-    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
-    expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
-    expect(await screen.findByText(/Aquí va un resumen de los 2 archivos/, {}, { timeout: 2000 })).toBeInTheDocument();
-    expect(screen.getByText("Fuentes:")).toBeInTheDocument();
+    await openRoom();
+
+    expect(screen.getByText("Espacio del grupo")).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText(/integrantes/)).not.toBeInTheDocument());
+  });
+
+  it("responde preguntas usando los archivos que se suben", async () => {
+    await openRoom();
 
     const file = new File(["apuntes"], "Apuntes clase 5.pdf", { type: "application/pdf" });
     fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
@@ -134,18 +1030,156 @@ describe("Espacio del grupo", () => {
     const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
     expect(within(files).getByText("Apuntes clase 5.pdf")).toBeInTheDocument();
     expect(screen.getByText(/leí "Apuntes clase 5.pdf"/)).toBeInTheDocument();
-    expect(screen.getByText("Usando 3 archivos")).toBeInTheDocument();
+    expect(screen.getByText("Usando 1 archivo")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
+      target: { value: "Resume los archivos" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
+    expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Aquí va un resumen de el archivo/, {}, { timeout: 2000 }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Fuentes:")).toBeInTheDocument();
   });
 });
 
-describe("filterGroups", () => {
-  it("filtra por ramo sin importar tildes, modalidad y día", () => {
-    const result = filterGroups(groups, {
-      query: "CALCULO",
-      modality: "online",
-      days: ["J"],
-      blocks: [],
+describe("Detalle del grupo", () => {
+  const openFirstResult = async () => {
+    await login();
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: "calculo" } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+    await screen.findByText("Encontramos 2 grupos");
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[0]);
+  };
+
+  it("muestra los integrantes y al creador, sin el lugar si no eres integrante", async () => {
+    mockApi();
+    await openFirstResult();
+
+    expect(screen.getByText("Cargando integrantes…")).toBeInTheDocument();
+    expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
+    const owner = screen.getByText("Ana Rojas").closest("li");
+    expect(within(owner).getByText("Creador")).toBeInTheDocument();
+    expect(screen.getByText("Grupo de estudio · MAT1620")).toBeInTheDocument();
+    expect(screen.queryByText("Lugar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Solicitar ingreso" })).toBeEnabled();
+  });
+
+  it("si eres integrante muestra el lugar y permite abrir el grupo", async () => {
+    mockApi({
+      "GET /api/grupos/11": () => [
+        200,
+        apiDetail(apiGroups[0], { es_miembro: true, lugar: "Biblioteca central, sala 2" }),
+      ],
     });
-    expect(result.map((g) => g.id)).toEqual([2]);
+    await openFirstResult();
+
+    expect(await screen.findByText("Biblioteca central, sala 2")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Solicitar ingreso" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Abrir grupo/ }));
+    expect(screen.getByRole("heading", { name: "Cálculo II" })).toBeInTheDocument();
+    expect(screen.getByLabelText("2 integrantes")).toBeInTheDocument();
+  });
+
+  it("avisa si el grupo ya no está disponible", async () => {
+    mockApi({
+      "GET /api/grupos/11": () => [
+        404,
+        { detail: "Este grupo no existe o ya no está disponible." },
+      ],
+    });
+    await openFirstResult();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya no está disponible");
+    expect(screen.getByRole("button", { name: "No disponible" })).toBeDisabled();
+  });
+});
+
+describe("Buscador", () => {
+  const searchFor = (text) => {
+    const input = screen.getByLabelText("Buscar asignatura");
+    fireEvent.change(input, { target: { value: text } });
+    fireEvent.click(within(input.closest("form")).getByRole("button", { name: "Buscar" }));
+  };
+  const searchUrl = (fetchMock) =>
+    new URL(fetchMock.mock.calls.findLast(([url]) => url.includes("/api/grupos"))[0]);
+
+  it("manda los filtros al backend", async () => {
+    const fetchMock = mockApi();
+    await login();
+
+    fireEvent.click(screen.getByRole("button", { name: "Online" }));
+    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mié" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    searchFor("  calculo ");
+    await screen.findByText(/Encontramos/);
+
+    const params = searchUrl(fetchMock).searchParams;
+    expect(params.get("q")).toBe("calculo");
+    expect(params.get("es_online")).toBe("true");
+    expect(params.getAll("dia")).toEqual(["0", "2"]);
+    expect(params.getAll("es_manana")).toEqual(["true"]);
+  });
+
+  it("sin filtros no manda parámetros", async () => {
+    const fetchMock = mockApi();
+    await login();
+    searchFor("");
+    await screen.findByText(/Encontramos/);
+
+    expect(searchUrl(fetchMock).search).toBe("");
+  });
+
+  it("muestra los grupos cerrados como cerrados aunque tengan cupo", async () => {
+    mockApi();
+    await login();
+    searchFor("calculo");
+
+    expect(await screen.findByText("Encontramos 2 grupos")).toBeInTheDocument();
+    expect(screen.getByText("Cerrado")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[1]);
+    expect(screen.getByRole("button", { name: "Grupo cerrado" })).toBeDisabled();
+  });
+
+  it("abre el detalle con los datos de la búsqueda", async () => {
+    mockApi();
+    await login();
+    searchFor("calculo");
+    await screen.findByText("Encontramos 2 grupos");
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Cálculo II/ })[0]);
+    expect(screen.getByRole("heading", { name: "Cálculo II" })).toBeInTheDocument();
+    expect(screen.getByText("Repaso para el certamen.")).toBeInTheDocument();
+    expect(screen.getByText("Integrantes (2/4)")).toBeInTheDocument();
+    // Se habilita cuando llega el detalle
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Solicitar ingreso" })).toBeEnabled(),
+    );
+  });
+
+  it("muestra el estado vacío si no hay resultados", async () => {
+    mockApi();
+    await login();
+    searchFor("química");
+
+    expect(await screen.findByText("Aún no hay grupos con esos filtros")).toBeInTheDocument();
+  });
+
+  it("muestra el error y permite reintentar", async () => {
+    let fail = true;
+    mockApi({
+      "GET /api/grupos": () => (fail ? [500, { detail: "Error interno" }] : [200, apiGroups]),
+    });
+    await login();
+    searchFor("");
+
+    expect(await screen.findByText("Error interno")).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByText("Encontramos 3 grupos")).toBeInTheDocument();
   });
 });
