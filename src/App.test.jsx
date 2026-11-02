@@ -586,6 +586,17 @@ describe("Inicio de sesión y verificación", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("El enlace ya expiró");
   });
 
+  it("si el enlace ya se usó y la cuenta está verificada, invita a iniciar sesión sin error", async () => {
+    const notice = "Tu correo ya está verificado. Inicia sesión con tu correo y contraseña.";
+    mockApi({ "POST /api/auth/verificar": () => [409, { detail: notice }] });
+    window.history.replaceState(null, "", "/?verificar=usado");
+    render(<App />);
+
+    expect(await screen.findByText(notice)).toBeInTheDocument();
+    expect(screen.getByText("¡Hola de nuevo! 👋")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("recupera la sesión guardada al recargar", async () => {
     const fetchMock = mockApi();
     setToken("jwt-guardado");
