@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getMe, logout, verifyEmail } from "./api/auth";
-import { errorMessage, getToken, onSessionExpired } from "./api/client";
+import { ApiError, errorMessage, getToken, onSessionExpired } from "./api/client";
 import { getMySubjects } from "./api/profile";
 import Navbar from "./components/Navbar";
 import CreateGroup from "./views/CreateGroup";
@@ -103,7 +103,12 @@ function App() {
       window.history.replaceState(null, "", window.location.pathname);
       verifyEmail(token)
         .then(enter)
-        .catch((err) => showLogin(errorMessage(err)));
+        .catch((err) => {
+          // 409: el enlace ya se había usado (por ejemplo, lo abrió antes el antivirus del correo)
+          // y la cuenta quedó verificada; basta con iniciar sesión
+          if (err instanceof ApiError && err.status === 409) showLogin("", null, err.message);
+          else showLogin(errorMessage(err));
+        });
     } else if (getToken()) {
       getMe()
         .then(enter)
