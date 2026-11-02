@@ -74,7 +74,3 @@ export async function request(path, { method = "GET", body } = {}) {
   }
   return data;
 }
-
-export function getHello() {
-  return request("/api/hello");
-}

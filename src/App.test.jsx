@@ -73,7 +73,6 @@ const searchRoute = (options, url) => {
 };
 
 const DEFAULT_ROUTES = {
-  "GET /api/hello": () => [200, { message: "Hola desde el backend de Coestudia" }],
   "POST /api/auth/login": () => [200, session],
   "POST /api/auth/registro": () => [201, { ...apiUser, email_verificado_en: null }],
   "POST /api/auth/verificar": () => [200, session],
@@ -118,24 +117,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   setToken(null);
   window.history.replaceState(null, "", "/");
-});
-
-describe("Conexión con el backend", () => {
-  it("muestra el mensaje del backend cuando la llamada funciona", async () => {
-    mockApi();
-    render(<App />);
-
-    expect(screen.getByText("Conectando con el backend…")).toBeInTheDocument();
-    expect(await screen.findByText(/Hola desde el backend de Coestudia/)).toBeInTheDocument();
-    expect(screen.getByText("Backend conectado")).toBeInTheDocument();
-  });
-
-  it("muestra un error cuando el backend no responde", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
-    render(<App />);
-
-    expect(await screen.findByText("No se pudo conectar con el backend")).toBeInTheDocument();
-  });
 });
 
 describe("App", () => {
@@ -550,13 +531,7 @@ describe("Inicio de sesión y verificación", () => {
   });
 
   it("avisa si no hay conexión con el servidor", async () => {
-    mockApi();
-    const failing = vi.fn((url) =>
-      url.endsWith("/api/hello")
-        ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
-        : Promise.reject(new TypeError("Failed to fetch")),
-    );
-    vi.stubGlobal("fetch", failing);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     render(<App />);
     fillLogin();
 
