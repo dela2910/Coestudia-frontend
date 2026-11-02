@@ -12,7 +12,8 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.{js,jsx}'],
       exclude: ['src/**/*.test.{js,jsx}', 'src/test/**', 'src/main.jsx'],
-      reporter: ['text', 'json-summary'],
+      // lcov lo usa el job de SonarQube del CI
+      reporter: ['text', 'json-summary', 'lcov'],
     },
   },
 })
