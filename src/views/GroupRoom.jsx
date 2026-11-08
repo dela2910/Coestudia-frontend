@@ -343,7 +343,7 @@ export default function GroupRoom({ group, user, onBack }) {
           </div>
 
           {fileNotice && (
-            <p className="alert alert-error" role="alert">
+            <p className="form-error" role="alert">
               {fileNotice}
             </p>
           )}
@@ -351,7 +351,7 @@ export default function GroupRoom({ group, user, onBack }) {
           {files === null ? (
             <p className="muted small">Cargando archivos…</p>
           ) : filesError ? (
-            <p className="alert alert-error" role="alert">
+            <p className="form-error" role="alert">
               {filesError}
             </p>
           ) : files.length === 0 ? (
