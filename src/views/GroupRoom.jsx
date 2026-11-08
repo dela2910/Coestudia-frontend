@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { askAssistant } from "../api/assistant";
+import { errorMessage } from "../api/client";
+import { deleteFile, downloadFile, getFiles, uploadFile } from "../api/files";
 import { getGroup } from "../api/groups";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
@@ -7,7 +9,7 @@ import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
 // Espacio interno de un grupo: asistente de estudio (chatbot) a la izquierda y
 // archivos compartidos a la derecha. El asistente responde usando esos archivos.
-// Los archivos y el asistente viven en estado local (maqueta): no se envían al backend.
+// Los archivos se guardan en el backend (B12); el asistente todavía es una simulación local (B13).
 
 const SUGGESTIONS = ["Resume los archivos", "Hazme preguntas de práctica", "Explícame un concepto"];
 
@@ -22,17 +24,21 @@ const fileExtension = (name) => {
   return parts.length > 1 ? parts.at(-1).slice(0, 4).toUpperCase() : "ARCH";
 };
 
-const today = () => new Date().toLocaleDateString("es-CL", { day: "numeric", month: "short" });
-
 const welcome = (subject) => ({
   id: 0,
   role: "bot",
   text: `¡Hola! Soy el asistente de estudio de ${subject}. Leo los archivos que suba el grupo y respondo tus dudas usando ese material. ¿Por dónde empezamos?`,
 });
 
-export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
-  const me = user.name.split(" ")[0];
-  const [files, setFiles] = useState(initialFiles);
+export default function GroupRoom({ group, user, onBack }) {
+  // null mientras cargan
+  const [files, setFiles] = useState(null);
+  const [filesError, setFilesError] = useState("");
+  // Aviso cuando falla subir, descargar o eliminar un archivo
+  const [fileNotice, setFileNotice] = useState("");
+  const [uploading, setUploading] = useState(0);
+  // Ids de los archivos que se están eliminando, para no mandar dos veces la misma petición
+  const [deleting, setDeleting] = useState([]);
   // Desde el detalle llegan los integrantes; desde "Mis grupos" no, y se piden al backend
   const [integrants, setIntegrants] = useState(group.integrants ?? null);
   const [messages, setMessages] = useState(() => [welcome(group.subject)]);
@@ -41,8 +47,29 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
   const [dragging, setDragging] = useState(false);
   const fileInput = useRef(null);
   const chatEnd = useRef(null);
-  // Contador para ids locales; parte alto para no chocar con los ids de ejemplo.
-  const nextId = useRef(10_000);
+  // Contador para los ids de los mensajes del chat
+  const nextId = useRef(1);
+
+  useEffect(() => {
+    let active = true;
+    getFiles(group.id)
+      .then((list) => {
+        if (!active) return;
+        // Si alguien subió un archivo antes de que llegara la lista, se conserva
+        setFiles((prev) => [
+          ...(prev ?? []).filter((f) => !list.some((loaded) => loaded.id === f.id)),
+          ...list,
+        ]);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setFiles((prev) => prev ?? []);
+        setFilesError(errorMessage(err));
+      });
+    return () => {
+      active = false;
+    };
+  }, [group.id]);
 
   useEffect(() => {
     if (group.integrants) return;
@@ -64,18 +91,27 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
   const addMessage = (msg) =>
     setMessages((prev) => [...prev, { id: nextId.current++, ...msg }]);
 
-  const addFiles = (fileList) => {
-    const added = [...fileList].map((file) => ({
-      id: nextId.current++,
-      name: file.name,
-      size: file.size,
-      uploadedBy: me,
-      date: today(),
-      // Enlace local para poder descargar el archivo recién subido.
-      url: URL.createObjectURL?.(file),
-    }));
+  // Se suben de a uno; si alguno falla, los demás siguen
+  const addFiles = async (fileList) => {
+    const pending = [...fileList];
+    if (pending.length === 0) return;
+    setFileNotice("");
+    setUploading((n) => n + pending.length);
+    const added = [];
+    const problems = [];
+    for (const file of pending) {
+      try {
+        const saved = await uploadFile(group.id, file);
+        added.push(saved);
+        setFiles((prev) => [saved, ...(prev ?? [])]);
+      } catch (err) {
+        problems.push(errorMessage(err));
+      } finally {
+        setUploading((n) => n - 1);
+      }
+    }
+    if (problems.length > 0) setFileNotice(problems.join(" "));
     if (added.length === 0) return;
-    setFiles((prev) => [...added, ...prev]);
     addMessage({
       role: "bot",
       text:
@@ -85,9 +121,30 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
     });
   };
 
-  const removeFile = (id) => {
-    setFiles((prev) => prev.filter((f) => f.id !== id));
+  const removeFile = async (file) => {
+    if (deleting.includes(file.id)) return;
+    setFileNotice("");
+    setDeleting((prev) => [...prev, file.id]);
+    try {
+      await deleteFile(file.id);
+      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+    } catch (err) {
+      setFileNotice(errorMessage(err));
+    } finally {
+      setDeleting((prev) => prev.filter((id) => id !== file.id));
+    }
   };
+
+  const download = async (file) => {
+    setFileNotice("");
+    try {
+      await downloadFile(file);
+    } catch (err) {
+      setFileNotice(errorMessage(err));
+    }
+  };
+
+  const fileCount = files?.length ?? 0;
 
   const ask = async (question) => {
     const text = question.trim();
@@ -96,7 +153,7 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
     setDraft("");
     setThinking(true);
     try {
-      const answer = await askAssistant({ question: text, files });
+      const answer = await askAssistant({ question: text, files: files ?? [] });
       addMessage({ role: "bot", text: answer.text, sources: answer.sources });
     } catch {
       addMessage({
@@ -162,7 +219,7 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
             </span>
             <h2>Asistente de estudio</h2>
             <span className="badge badge-soft">
-              Usando {files.length} {files.length === 1 ? "archivo" : "archivos"}
+              Usando {fileCount} {fileCount === 1 ? "archivo" : "archivos"}
             </span>
           </div>
 
@@ -260,7 +317,7 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
           <div className="panel-head">
             <Icon name="file" size={18} />
             <h2>Archivos</h2>
-            <span className="badge badge-soft">{files.length}</span>
+            <span className="badge badge-soft">{fileCount}</span>
           </div>
 
           <div
@@ -276,9 +333,14 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
               <Icon name="upload" size={22} />
             </span>
             <strong>Arrastra tus archivos aquí</strong>
-            <span className="muted small">PDF, Word, imágenes o apuntes</span>
-            <button type="button" className="btn btn-secondary btn-sm" onClick={openPicker}>
-              <Icon name="upload" size={16} /> Subir archivo
+            <span className="muted small">PDF, Word, imágenes o apuntes · hasta 10 MB</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={openPicker}
+              disabled={uploading > 0}
+            >
+              <Icon name="upload" size={16} /> {uploading > 0 ? "Subiendo…" : "Subir archivo"}
             </button>
             <input
               ref={fileInput}
@@ -293,10 +355,28 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
             />
           </div>
 
-          {files.length === 0 ? (
+          {fileNotice && (
+            <p className="form-error" role="alert">
+              {fileNotice}
+            </p>
+          )}
+
+          {/* Si falló la carga, la lista puede estar incompleta: se muestran igual los que se
+              subieron después */}
+          {filesError && (
+            <p className="form-error" role="alert">
+              {filesError}
+            </p>
+          )}
+
+          {files === null ? (
+            <p className="muted small">Cargando archivos…</p>
+          ) : files.length === 0 ? (
+            filesError ? null : (
             <EmptyState icon="file" title="Sin archivos">
               Sube apuntes o guías para que el asistente pueda usarlos.
             </EmptyState>
+            )
           ) : (
             <ul className="file-list">
               {files.map((f) => (
@@ -309,32 +389,21 @@ export default function GroupRoom({ group, user, initialFiles = [], onBack }) {
                     </span>
                   </div>
                   <div className="file-actions">
-                    {f.url ? (
-                      <a
-                        className="input-action"
-                        href={f.url}
-                        download={f.name}
-                        aria-label={`Descargar ${f.name}`}
-                      >
-                        <Icon name="download" size={18} />
-                      </a>
-                    ) : (
-                      <button
-                        type="button"
-                        className="input-action"
-                        aria-label={`Descargar ${f.name}`}
-                        disabled
-                        title="Disponible cuando se conecte el backend"
-                      >
-                        <Icon name="download" size={18} />
-                      </button>
-                    )}
-                    {f.uploadedBy === me && (
+                    <button
+                      type="button"
+                      className="input-action"
+                      aria-label={`Descargar ${f.name}`}
+                      onClick={() => download(f)}
+                    >
+                      <Icon name="download" size={18} />
+                    </button>
+                    {f.canDelete && (
                       <button
                         type="button"
                         className="input-action input-action-danger"
                         aria-label={`Eliminar ${f.name}`}
-                        onClick={() => removeFile(f.id)}
+                        disabled={deleting.includes(f.id)}
+                        onClick={() => removeFile(f)}
                       >
                         <Icon name="trash" size={18} />
                       </button>
