@@ -55,17 +55,30 @@ export const toGroupDetail = (grupo) => ({
 export const getGroup = async (id) => toGroupDetail(await request(`/api/grupos/${id}`));
 
 // Datos del grupo que comparten crear y editar. Se guarda cada combinación de los días y bloques
-// elegidos.
-const groupBody = ({ description, isOnline, place, link, days, blocks, capacity, validUntil }) => ({
+// elegidos, salvo que venga schedule: los horarios exactos que ya tenía el grupo (al editar sin
+// tocar días ni bloques, para no agregar combinaciones que no estaban).
+const groupBody = ({
+  description,
+  isOnline,
+  place,
+  link,
+  days,
+  blocks,
+  schedule,
+  capacity,
+  validUntil,
+}) => ({
   descripcion: description.trim() || null,
   es_online: isOnline,
   lugar: isOnline ? null : place.trim(),
   enlace: isOnline ? link.trim() : null,
   cupo_maximo: capacity,
   vigente_hasta: validUntil,
-  horarios: days.flatMap((day) =>
-    blocks.map((isMorning) => ({ dia_semana: day, es_manana: isMorning })),
-  ),
+  horarios: schedule
+    ? schedule.map((h) => ({ dia_semana: h.day, es_manana: h.isMorning }))
+    : days.flatMap((day) =>
+        blocks.map((isMorning) => ({ dia_semana: day, es_manana: isMorning })),
+      ),
 });
 
 // Crear grupo: POST /api/grupos. subjectName solo se usa si la sigla aún no existe (el backend

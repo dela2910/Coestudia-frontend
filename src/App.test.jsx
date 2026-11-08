@@ -1569,6 +1569,57 @@ describe("Administrar grupo", () => {
     expect(screen.getByRole("button", { name: "Disminuir cupo" })).toBeDisabled();
   });
 
+  // Lunes mañana y miércoles tarde: no son todas las combinaciones de esos días y bloques
+  const mixedSchedule = [
+    { dia_semana: 0, es_manana: true },
+    { dia_semana: 2, es_manana: false },
+  ];
+  const sentSchedule = (fetchMock) =>
+    JSON.parse(fetchMock.mock.calls.find(([, o]) => o?.method === "PUT")[1].body).horarios;
+
+  it("cerrar el grupo no cambia sus horarios", async () => {
+    const fetchMock = await openManage({
+      "GET /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule })],
+      "PUT /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule, abierto: false })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar grupo" }));
+
+    expect(await screen.findByText("Grupo cerrado")).toBeInTheDocument();
+    expect(sentSchedule(fetchMock)).toEqual(mixedSchedule);
+  });
+
+  it("guardar sin tocar días ni bloques conserva los horarios exactos", async () => {
+    const fetchMock = await openManage({
+      "GET /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule })],
+      "PUT /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Aumentar cupo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    expect(sentSchedule(fetchMock)).toEqual(mixedSchedule);
+  });
+
+  it("expulsar a alguien no borra los cambios sin guardar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openManage({
+      "DELETE /api/grupos/11/integrantes/8": () => [
+        200,
+        ownDetail({ miembros: 1, integrantes: [ownDetail().integrantes[0]] }),
+      ],
+    });
+    fireEvent.change(screen.getByDisplayValue("Biblioteca central, sala 2"), {
+      target: { value: "Sala de estudio 3" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    await waitFor(() => expect(screen.queryByText("Luis Castro")).not.toBeInTheDocument());
+    expect(screen.getByDisplayValue("Sala de estudio 3")).toBeInTheDocument();
+  });
+
   it("cierra y reabre el grupo", async () => {
     let open = true;
     await openManage({

@@ -29,6 +29,16 @@ const formFrom = (group) => ({
   ...scheduleChoices(group.schedule),
 });
 
+const sameItems = (a, b) => a.length === b.length && a.every((item) => b.includes(item));
+
+// Si no se tocaron los días ni los bloques, se mandan los horarios exactos del grupo: armar todas
+// las combinaciones agregaría algunas que no tenía (ej. lunes mañana y miércoles tarde)
+const withSchedule = (form, group) => {
+  const current = scheduleChoices(group.schedule);
+  const untouched = sameItems(form.days, current.days) && sameItems(form.blocks, current.blocks);
+  return untouched ? { ...form, schedule: group.schedule } : form;
+};
+
 // busy: hay otra acción en curso (guardar, cerrar, expulsar o eliminar); onSave guarda los datos
 // y devuelve true si funcionó. Los errores los muestra la vista.
 function EditForm({ group, busy, onSave }) {
@@ -210,10 +220,18 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
     }
   };
 
-  const save = (form) => act(() => updateGroup(group.id, { ...form, isOpen: group.isOpen }));
+  const save = (form) =>
+    act(() => updateGroup(group.id, { ...withSchedule(form, group), isOpen: group.isOpen }));
 
+  // Solo cambia si recibe solicitudes: el resto, incluidos los horarios, queda igual
   const toggleOpen = () =>
-    act(() => updateGroup(group.id, { ...formFrom(group), isOpen: !group.isOpen }));
+    act(() =>
+      updateGroup(group.id, {
+        ...formFrom(group),
+        schedule: group.schedule,
+        isOpen: !group.isOpen,
+      }),
+    );
 
   const expel = async (member) => {
     if (!window.confirm(`¿Expulsar a ${member.name} del grupo?`)) return;
@@ -310,7 +328,8 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
             </ul>
           </section>
 
-          <EditForm key={group.members} group={group} busy={busy} onSave={save} />
+          {/* Sin key: el borrador se conserva aunque cambien los integrantes (ej. al expulsar) */}
+          <EditForm group={group} busy={busy} onSave={save} />
 
           <section className="card">
             <h2 className="section-title">Eliminar grupo</h2>
