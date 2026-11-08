@@ -1514,6 +1514,42 @@ describe("Administrar grupo", () => {
     expect(screen.getByText("Integrantes (2/5)")).toBeInTheDocument();
   });
 
+  it("no deja cerrar el grupo mientras se guardan cambios", async () => {
+    let finishSave;
+    await openManage();
+    const apiFetch = globalThis.fetch;
+    const fetchMock = vi.fn((url, options = {}) =>
+      options.method === "PUT"
+        ? new Promise((resolve) => {
+            finishSave = () =>
+              resolve({ ok: true, status: 200, json: () => Promise.resolve(ownDetail()) });
+          })
+        : apiFetch(url, options),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByRole("button", { name: "Guardando…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cerrar grupo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Expulsar a Luis Castro" })).toBeDisabled();
+    finishSave();
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cerrar grupo" })).toBeEnabled();
+    expect(fetchMock.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(1);
+  });
+
+  it("muestra el error si no se pudo guardar", async () => {
+    await openManage({
+      "PUT /api/grupos/11": () => [422, { detail: "El cupo no puede ser menor que los 2 integrantes actuales." }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText(/no puede ser menor/)).toBeInTheDocument();
+    expect(screen.queryByText("Cambios guardados.")).not.toBeInTheDocument();
+  });
+
   it("no deja bajar el cupo de los integrantes actuales", async () => {
     await openManage({
       "GET /api/grupos/11": () => [200, ownDetail({ cupo_maximo: 2 })],

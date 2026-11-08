@@ -29,10 +29,10 @@ const formFrom = (group) => ({
   ...scheduleChoices(group.schedule),
 });
 
-function EditForm({ group, onSaved }) {
+// busy: hay otra acción en curso (guardar, cerrar, expulsar o eliminar); onSave guarda los datos
+// y devuelve true si funcionó. Los errores los muestra la vista.
+function EditForm({ group, busy, onSave }) {
   const [form, setForm] = useState(() => formFrom(group));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [tomorrow] = useState(() => isoDate(new Date(Date.now() + 24 * 60 * 60 * 1000)));
 
@@ -48,21 +48,12 @@ function EditForm({ group, onSaved }) {
     form.days.length > 0 &&
     form.blocks.length > 0 &&
     form.validUntil >= tomorrow &&
-    !saving;
+    !busy;
 
   const save = async (e) => {
     e.preventDefault();
     if (!canSave) return;
-    setError("");
-    setSaving(true);
-    try {
-      onSaved(await updateGroup(group.id, { ...form, isOpen: group.isOpen }));
-      setSaved(true);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setSaving(false);
-    }
+    setSaved(await onSave(form));
   };
 
   return (
@@ -172,18 +163,13 @@ function EditForm({ group, onSaved }) {
           solicitudes en espera vuelven a quedar pendientes.
         </span>
       </div>
-      {error && (
-        <p className="form-error" role="alert">
-          {error}
-        </p>
-      )}
       {saved && (
         <p className="notice" role="status">
           <Icon name="check" size={16} /> Cambios guardados.
         </p>
       )}
       <button type="submit" className="btn btn-primary btn-block" disabled={!canSave}>
-        {saving ? "Guardando…" : "Guardar cambios"}
+        {busy ? "Guardando…" : "Guardar cambios"}
       </button>
     </form>
   );
@@ -206,29 +192,36 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
     };
   }, [summary.id]);
 
-  // call: devuelve el detalle actualizado del grupo
+  // Una acción a la vez: guardar, cerrar o reabrir y expulsar comparten busy, para que la
+  // respuesta de una no pise a la otra. call devuelve el detalle actualizado; act devuelve si
+  // funcionó.
   const act = async (call) => {
+    if (busy) return false;
     setError("");
     setBusy(true);
     try {
       setGroup(await call());
+      return true;
     } catch (err) {
       setError(errorMessage(err));
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
+  const save = (form) => act(() => updateGroup(group.id, { ...form, isOpen: group.isOpen }));
+
   const toggleOpen = () =>
     act(() => updateGroup(group.id, { ...formFrom(group), isOpen: !group.isOpen }));
 
-  const expel = (member) => {
+  const expel = async (member) => {
     if (!window.confirm(`¿Expulsar a ${member.name} del grupo?`)) return;
-    act(() => removeMember(group.id, member.id));
+    await act(() => removeMember(group.id, member.id));
   };
 
   const remove = async () => {
-    if (!window.confirm(`¿Eliminar el grupo de ${group.subject}? No se puede deshacer.`)) return;
+    if (busy || !window.confirm(`¿Eliminar el grupo de ${group.subject}? No se puede deshacer.`)) return;
     setError("");
     setBusy(true);
     try {
@@ -317,7 +310,7 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
             </ul>
           </section>
 
-          <EditForm key={group.members} group={group} onSaved={setGroup} />
+          <EditForm key={group.members} group={group} busy={busy} onSave={save} />
 
           <section className="card">
             <h2 className="section-title">Eliminar grupo</h2>
