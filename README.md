@@ -50,6 +50,7 @@ src/
 │   ├── auth.js        # registro, verificación del correo, login y sesión
 │   ├── groups.js      # buscar, crear, solicitudes, administrar y abandonar grupos
 │   ├── profile.js     # editar el perfil y «mis asignaturas»
+│   ├── files.js       # archivos del grupo: subir, listar, descargar y eliminar
 │   └── assistant.js   # asistente IA (simulado)
 ├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
 ├── data/

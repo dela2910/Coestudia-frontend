@@ -236,7 +236,6 @@ function App() {
             key={selectedGroup.id}
             group={selectedGroup}
             user={user}
-            // Los archivos todavía no se guardan en el backend (B12): el espacio parte vacío
             onBack={() => navigate("profile")}
             onLeft={() => navigate("profile")}
             onManage={openManage}
