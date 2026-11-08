@@ -27,6 +27,7 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
   const group = detail ?? summary;
   const isMember = detail?.isMember ?? false;
   const requested = detail?.pendingRequest ?? false;
+  const waiting = detail?.waiting ?? false;
 
   // call: requestToJoin o cancelRequest; ambas devuelven el detalle actualizado
   const act = async (call) => {
@@ -152,15 +153,13 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
             >
               <Icon name="chat" size={18} /> Abrir grupo
             </button>
-          ) : error || full || closed ? (
-            <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
-              {error ? "No disponible" : full ? "Grupo completo" : "Grupo cerrado"}
-            </button>
           ) : requested ? (
             <div className="request-sent">
               <span className="request-sent-text">
-                <Icon name="check" size={18} strokeWidth={2.4} /> Solicitud enviada. Te avisaremos
-                cuando {group.owner ?? "el creador"} responda.
+                <Icon name="check" size={18} strokeWidth={2.4} />
+                {waiting
+                  ? `Estás en la lista de espera: si se libera un cupo, ${group.owner ?? "el creador"} podrá aceptarte.`
+                  : `Solicitud enviada. Te avisaremos cuando ${group.owner ?? "el creador"} responda.`}
               </span>
               <button
                 type="button"
@@ -171,6 +170,20 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
                 {busy ? "Cancelando…" : "Cancelar solicitud"}
               </button>
             </div>
+          ) : error || closed ? (
+            <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
+              {error ? "No disponible" : "Grupo cerrado"}
+            </button>
+          ) : full ? (
+            // Completo pero abierto: la solicitud queda en espera hasta que se libere un cupo
+            <button
+              type="button"
+              className="btn btn-secondary btn-lg btn-block"
+              disabled={!detail || busy}
+              onClick={() => act(requestToJoin)}
+            >
+              {busy ? "Enviando…" : "Unirme a la lista de espera"}
+            </button>
           ) : (
             <button
               type="button"

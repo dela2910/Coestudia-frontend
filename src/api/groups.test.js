@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   requestToJoin,
+  scheduleChoices,
   searchGroups,
   toGroup,
   toGroupDetail,
   toMyGroup,
   toMyRequest,
+  updateGroup,
 } from "./groups";
 
 const grupo = {
@@ -108,13 +110,16 @@ describe("toMyGroup", () => {
         {
           id: 5,
           usuario: { id: 9, nombre: "Luis", carrera: null },
+          estado: "en_espera",
           mensaje: null,
           creada_en: "2026-10-29T12:00:00Z",
         },
       ],
     });
     expect(mine).toMatchObject({ isOwner: true, place: null, link: "https://meet.google.com/abc" });
-    expect(mine.requests).toEqual([{ id: 5, name: "Luis", career: "", message: "" }]);
+    expect(mine.requests).toEqual([
+      { id: 5, status: "en_espera", name: "Luis", career: "", message: "" },
+    ]);
   });
 });
 
@@ -170,5 +175,70 @@ describe("toMyRequest", () => {
       answeredAt: "2026-10-29T18:00:00Z",
       group: toGroup(grupo),
     });
+  });
+});
+
+describe("updateGroup", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("manda los datos editables y si el grupo recibe solicitudes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          ...grupo,
+          creador: "Ana",
+          integrantes: [],
+          es_miembro: true,
+          solicitud_pendiente: false,
+          solicitud_en_espera: false,
+          lugar: "Biblioteca",
+          enlace: null,
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await updateGroup(7, {
+      description: "  ",
+      isOnline: false,
+      place: " Biblioteca ",
+      link: "https://ignorado",
+      days: [0, 2],
+      blocks: [true],
+      capacity: 5,
+      validUntil: "2026-12-04",
+      isOpen: false,
+    });
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(new URL(url).pathname).toBe("/api/grupos/7");
+    expect(options.method).toBe("PUT");
+    expect(JSON.parse(options.body)).toEqual({
+      descripcion: null,
+      es_online: false,
+      lugar: "Biblioteca",
+      enlace: null,
+      cupo_maximo: 5,
+      vigente_hasta: "2026-12-04",
+      horarios: [
+        { dia_semana: 0, es_manana: true },
+        { dia_semana: 2, es_manana: true },
+      ],
+      abierto: false,
+    });
+    expect(result.place).toBe("Biblioteca");
+  });
+});
+
+describe("scheduleChoices", () => {
+  it("separa los días y bloques de los horarios", () => {
+    expect(
+      scheduleChoices([
+        { day: 2, isMorning: false },
+        { day: 0, isMorning: true },
+        { day: 2, isMorning: true },
+      ]),
+    ).toEqual({ days: [0, 2], blocks: [false, true] });
   });
 });

@@ -197,6 +197,7 @@ describe("App", () => {
     const request = (id, nombre) => ({
       id,
       usuario: { id, nombre, carrera: "Ingeniería Civil" },
+      estado: "pendiente",
       mensaje: null,
       creada_en: "2026-10-29T12:00:00Z",
     });
@@ -244,6 +245,7 @@ describe("App", () => {
         {
           id: 31,
           usuario: { id: 31, nombre: "Pedro Rojas", carrera: null },
+          estado: "pendiente",
           mensaje: null,
           creada_en: "2026-10-29T12:00:00Z",
         },
@@ -1192,5 +1194,268 @@ describe("Buscador", () => {
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
     expect(await screen.findByText("Encontramos 3 grupos")).toBeInTheDocument();
+  });
+});
+
+describe("Lista de espera", () => {
+  it("permite unirse a la lista de espera de un grupo completo", async () => {
+    const full = apiGroup(11, "MAT1620", "Cálculo II", { miembros: 4 });
+    mockApi({
+      "GET /api/grupos": () => [200, [full]],
+      "GET /api/grupos/11": () => [200, apiDetail(full)],
+      "POST /api/grupos/11/solicitudes": () => [
+        201,
+        apiDetail(full, { solicitud_pendiente: true, solicitud_en_espera: true }),
+      ],
+    });
+    await login();
+    fireEvent.change(screen.getByLabelText("Buscar asignatura"), { target: { value: "calculo" } });
+    fireEvent.click(
+      within(screen.getByLabelText("Buscar asignatura").closest("form")).getByRole("button", {
+        name: "Buscar",
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II/ }));
+
+    const join = await screen.findByRole("button", { name: "Unirme a la lista de espera" });
+    await waitFor(() => expect(join).toBeEnabled());
+    fireEvent.click(join);
+
+    expect(await screen.findByText(/Estás en la lista de espera/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar solicitud" })).toBeInTheDocument();
+  });
+
+  it("muestra las solicitudes en espera sin permitir aceptarlas", async () => {
+    const mine = apiMyGroup(apiGroups[0], {
+      es_creador: true,
+      miembros: 4,
+      solicitudes: [
+        {
+          id: 41,
+          usuario: { id: 41, nombre: "Pedro Rojas", carrera: null },
+          estado: "en_espera",
+          mensaje: null,
+          creada_en: "2026-10-29T12:00:00Z",
+        },
+      ],
+    });
+    mockApi({ "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }] });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+
+    expect(await screen.findByText("1 en espera")).toBeInTheDocument();
+    expect(screen.getByText("En espera de un cupo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aceptar a Pedro Rojas" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rechazar a Pedro Rojas" })).toBeEnabled();
+  });
+
+  it("muestra el estado en espera en Mis solicitudes", async () => {
+    mockApi({
+      "GET /api/solicitudes/mias": () => [
+        200,
+        [
+          {
+            id: 5,
+            estado: "en_espera",
+            mensaje: null,
+            creada_en: "2026-10-29T12:00:00Z",
+            respondida_en: null,
+            grupo: apiGroups[0],
+          },
+        ],
+      ],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByText("En espera")).toBeInTheDocument();
+    expect(screen.getByText(/si se libera un cupo/)).toBeInTheDocument();
+  });
+});
+
+describe("Administrar grupo", () => {
+  // Detalle visto por el creador (id 1 = Benjamín, el usuario de la sesión)
+  const ownDetail = (fields = {}) =>
+    apiDetail(apiGroups[0], {
+      creador: "Benjamín Soto",
+      integrantes: [
+        { id: 1, nombre: "Benjamín Soto", carrera: "Ingeniería Civil Informática", es_creador: true },
+        { id: 8, nombre: "Luis Castro", carrera: "Ingeniería Comercial", es_creador: false },
+      ],
+      es_miembro: true,
+      solicitud_en_espera: false,
+      lugar: "Biblioteca central, sala 2",
+      ...fields,
+    });
+  const mine = apiMyGroup(apiGroups[0], { es_creador: true });
+
+  const openManage = async (routes = {}) => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }],
+      "GET /api/grupos/11": () => [200, ownDetail()],
+      ...routes,
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Administrar Cálculo II" }));
+    await screen.findByText("Datos del grupo");
+    return fetchMock;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("edita los datos del grupo", async () => {
+    const fetchMock = await openManage({
+      "PUT /api/grupos/11": (options) => {
+        const body = JSON.parse(options.body);
+        return [200, ownDetail({ cupo_maximo: body.cupo_maximo, lugar: body.lugar })];
+      },
+    });
+
+    fireEvent.change(screen.getByDisplayValue("Biblioteca central, sala 2"), {
+      target: { value: "Sala de estudio 3" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Aumentar cupo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    const [, put] = fetchMock.mock.calls.find(([, o]) => o?.method === "PUT");
+    expect(JSON.parse(put.body)).toMatchObject({
+      lugar: "Sala de estudio 3",
+      cupo_maximo: 5,
+      abierto: true,
+      horarios: [{ dia_semana: 1, es_manana: false }],
+    });
+    expect(screen.getByText("Integrantes (2/5)")).toBeInTheDocument();
+  });
+
+  it("no deja bajar el cupo de los integrantes actuales", async () => {
+    await openManage({
+      "GET /api/grupos/11": () => [200, ownDetail({ cupo_maximo: 2 })],
+    });
+    expect(screen.getByRole("button", { name: "Disminuir cupo" })).toBeDisabled();
+  });
+
+  it("cierra y reabre el grupo", async () => {
+    let open = true;
+    await openManage({
+      "PUT /api/grupos/11": (options) => {
+        open = JSON.parse(options.body).abierto;
+        return [200, ownDetail({ abierto: open })];
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar grupo" }));
+    expect(await screen.findByText("Grupo cerrado")).toBeInTheDocument();
+    expect(open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Reabrir grupo" }));
+    expect(await screen.findByText("Recibe solicitudes")).toBeInTheDocument();
+  });
+
+  it("expulsa a un integrante después de confirmar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = await openManage({
+      "DELETE /api/grupos/11/integrantes/8": () => [
+        200,
+        ownDetail({ miembros: 1, integrantes: [ownDetail().integrantes[0]] }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    await waitFor(() => expect(screen.queryByText("Luis Castro")).not.toBeInTheDocument());
+    expect(window.confirm).toHaveBeenCalledWith("¿Expulsar a Luis Castro del grupo?");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/grupos/11/integrantes/8"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("no expulsa si se cancela la confirmación", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = await openManage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    expect(screen.getByText("Luis Castro")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("elimina el grupo y vuelve a Mis grupos", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openManage({ "DELETE /api/grupos/11": () => [204, null] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar grupo" }));
+
+    expect(await screen.findByRole("heading", { name: "Mis grupos" })).toBeInTheDocument();
+  });
+
+  it("muestra el error si falla una acción", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openManage({
+      "DELETE /api/grupos/11/integrantes/8": () => [404, { detail: "Esa persona no es integrante del grupo." }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    expect(await screen.findByText("Esa persona no es integrante del grupo.")).toBeInTheDocument();
+  });
+
+  it("se abre también desde el espacio del grupo", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }],
+      "GET /api/grupos/11": () => [200, ownDetail()],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Administrar" }));
+
+    expect(await screen.findByText("Datos del grupo")).toBeInTheDocument();
+  });
+});
+
+describe("Abandonar grupo", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const openRoom = async (routes = {}) => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      ...routes,
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+    return fetchMock;
+  };
+
+  it("abandona el grupo después de confirmar y vuelve a Mis grupos", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = await openRoom({ "POST /api/grupos/11/abandonar": () => [204, null] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Abandonar grupo" }));
+
+    expect(await screen.findByRole("heading", { name: "Mis grupos" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/grupos/11/abandonar"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("muestra el error si no se pudo abandonar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openRoom({
+      "POST /api/grupos/11/abandonar": () => [409, { detail: "Eres el creador del grupo: para dejarlo, elimínalo." }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Abandonar grupo" }));
+
+    expect(await screen.findByText(/para dejarlo, elimínalo/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abandonar grupo" })).toBeEnabled();
   });
 });
