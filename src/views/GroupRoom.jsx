@@ -37,6 +37,8 @@ export default function GroupRoom({ group, user, onBack }) {
   // Aviso cuando falla subir, descargar o eliminar un archivo
   const [fileNotice, setFileNotice] = useState("");
   const [uploading, setUploading] = useState(0);
+  // Ids de los archivos que se están eliminando, para no mandar dos veces la misma petición
+  const [deleting, setDeleting] = useState([]);
   // Desde el detalle llegan los integrantes; desde "Mis grupos" no, y se piden al backend
   const [integrants, setIntegrants] = useState(group.integrants ?? null);
   const [messages, setMessages] = useState(() => [welcome(group.subject)]);
@@ -51,10 +53,17 @@ export default function GroupRoom({ group, user, onBack }) {
   useEffect(() => {
     let active = true;
     getFiles(group.id)
-      .then((list) => active && setFiles(list))
+      .then((list) => {
+        if (!active) return;
+        // Si alguien subió un archivo antes de que llegara la lista, se conserva
+        setFiles((prev) => [
+          ...(prev ?? []).filter((f) => !list.some((loaded) => loaded.id === f.id)),
+          ...list,
+        ]);
+      })
       .catch((err) => {
         if (!active) return;
-        setFiles([]);
+        setFiles((prev) => prev ?? []);
         setFilesError(errorMessage(err));
       });
     return () => {
@@ -113,12 +122,16 @@ export default function GroupRoom({ group, user, onBack }) {
   };
 
   const removeFile = async (file) => {
+    if (deleting.includes(file.id)) return;
     setFileNotice("");
+    setDeleting((prev) => [...prev, file.id]);
     try {
       await deleteFile(file.id);
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
     } catch (err) {
       setFileNotice(errorMessage(err));
+    } finally {
+      setDeleting((prev) => prev.filter((id) => id !== file.id));
     }
   };
 
@@ -348,16 +361,22 @@ export default function GroupRoom({ group, user, onBack }) {
             </p>
           )}
 
-          {files === null ? (
-            <p className="muted small">Cargando archivos…</p>
-          ) : filesError ? (
+          {/* Si falló la carga, la lista puede estar incompleta: se muestran igual los que se
+              subieron después */}
+          {filesError && (
             <p className="form-error" role="alert">
               {filesError}
             </p>
+          )}
+
+          {files === null ? (
+            <p className="muted small">Cargando archivos…</p>
           ) : files.length === 0 ? (
+            filesError ? null : (
             <EmptyState icon="file" title="Sin archivos">
               Sube apuntes o guías para que el asistente pueda usarlos.
             </EmptyState>
+            )
           ) : (
             <ul className="file-list">
               {files.map((f) => (
@@ -383,6 +402,7 @@ export default function GroupRoom({ group, user, onBack }) {
                         type="button"
                         className="input-action input-action-danger"
                         aria-label={`Eliminar ${f.name}`}
+                        disabled={deleting.includes(f.id)}
                         onClick={() => removeFile(f)}
                       >
                         <Icon name="trash" size={18} />

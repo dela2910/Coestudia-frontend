@@ -1112,17 +1112,82 @@ describe("Espacio del grupo", () => {
     URL.createObjectURL = createObjectURL;
     URL.revokeObjectURL = vi.fn();
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    // Se restaura aunque falle una aserción, para no afectar a las pruebas siguientes
+    try {
+      await openRoom();
+
+      fireEvent.click(await screen.findByLabelText("Descargar Guía.pdf"));
+
+      await waitFor(() => expect(click).toHaveBeenCalled());
+      expect(createObjectURL).toHaveBeenCalledWith(blob);
+      const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/descarga"));
+      expect(options.headers.Authorization).toBe("Bearer jwt-de-prueba");
+    } finally {
+      click.mockRestore();
+      delete URL.createObjectURL;
+      delete URL.revokeObjectURL;
+    }
+  });
+
+  it("conserva lo subido aunque la lista inicial llegue después o falle", async () => {
+    let failList;
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      // La lista inicial no responde hasta que la prueba lo decide
+      "GET /api/grupos/11/archivos": () => [503, { detail: "No pudimos cargar los archivos." }],
+      "POST /api/grupos/11/archivos": () => [201, apiFile(9, "Nuevo.pdf", { puede_eliminar: true })],
+    });
+    const apiFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url, options = {}) =>
+        url.endsWith("/api/grupos/11/archivos") && options.method === "GET"
+          ? new Promise((resolve) => {
+              failList = () => resolve(apiFetch(url, options));
+            })
+          : apiFetch(url, options),
+      ),
+    );
     await openRoom();
 
-    fireEvent.click(await screen.findByLabelText("Descargar Guía.pdf"));
+    const file = new File(["x"], "Nuevo.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
+    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
+    expect(await within(files).findByText("Nuevo.pdf")).toBeInTheDocument();
 
-    await waitFor(() => expect(click).toHaveBeenCalled());
-    expect(createObjectURL).toHaveBeenCalledWith(blob);
-    const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/descarga"));
-    expect(options.headers.Authorization).toBe("Bearer jwt-de-prueba");
-    click.mockRestore();
-    delete URL.createObjectURL;
-    delete URL.revokeObjectURL;
+    failList();
+
+    expect(await screen.findByText("No pudimos cargar los archivos.")).toBeInTheDocument();
+    expect(within(files).getByText("Nuevo.pdf")).toBeInTheDocument();
+  });
+
+  it("no manda dos veces la eliminación de un archivo", async () => {
+    let finishDelete;
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [200, [apiFile(5, "Borrador.pdf", { puede_eliminar: true })]],
+    });
+    const apiFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url, options = {}) => {
+        if (options.method !== "DELETE") return apiFetch(url, options);
+        fetchMock(url, options);
+        return new Promise((resolve) => {
+          finishDelete = () => resolve({ ok: true, status: 204, json: () => Promise.resolve(null) });
+        });
+      }),
+    );
+    await openRoom();
+
+    const remove = await screen.findByLabelText("Eliminar Borrador.pdf");
+    fireEvent.click(remove);
+    fireEvent.click(remove);
+
+    expect(remove).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([, o]) => o?.method === "DELETE")).toHaveLength(1);
+    finishDelete();
+    expect(await screen.findByText("Sin archivos")).toBeInTheDocument();
   });
 
   it("no sube archivos de tipos no permitidos", async () => {
