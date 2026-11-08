@@ -1466,6 +1466,10 @@ textarea::placeholder {
   margin-bottom: 0.75rem;
 }
 
+.requests-manage {
+  margin-left: auto;
+}
+
 .requests ul {
   list-style: none;
   padding: 0;
@@ -1533,6 +1537,13 @@ textarea::placeholder {
   font-weight: 800;
   letter-spacing: -0.02em;
   margin-bottom: 0.35rem;
+}
+
+.room-head-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
 }
 
 .avatar-stack {

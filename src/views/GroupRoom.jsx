@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { askAssistant } from "../api/assistant";
 import { errorMessage } from "../api/client";
 import { deleteFile, downloadFile, getFiles, uploadFile } from "../api/files";
-import { getGroup } from "../api/groups";
+import { getGroup, leaveGroup } from "../api/groups";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
 import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
@@ -30,7 +30,8 @@ const welcome = (subject) => ({
   text: `¡Hola! Soy el asistente de estudio de ${subject}. Leo los archivos que suba el grupo y respondo tus dudas usando ese material. ¿Por dónde empezamos?`,
 });
 
-export default function GroupRoom({ group, user, onBack }) {
+// onLeft: el usuario abandonó el grupo; onManage: el creador abre la administración
+export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   // null mientras cargan
   const [files, setFiles] = useState(null);
   const [filesError, setFilesError] = useState("");
@@ -45,6 +46,8 @@ export default function GroupRoom({ group, user, onBack }) {
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState("");
   const fileInput = useRef(null);
   const chatEnd = useRef(null);
   // Contador para los ids de los mensajes del chat
@@ -83,6 +86,22 @@ export default function GroupRoom({ group, user, onBack }) {
       active = false;
     };
   }, [group]);
+
+  // Desde "Mis grupos" llega isOwner; desde el detalle, se deduce de los integrantes
+  const isOwner = group.isOwner ?? integrants?.some((m) => m.isOwner && m.id === user.id) ?? false;
+
+  const leave = async () => {
+    if (!window.confirm(`¿Abandonar el grupo de ${group.subject}?`)) return;
+    setLeaveError("");
+    setLeaving(true);
+    try {
+      await leaveGroup(group.id);
+      onLeft();
+    } catch (err) {
+      setLeaveError(errorMessage(err));
+      setLeaving(false);
+    }
+  };
 
   useEffect(() => {
     chatEnd.current?.scrollIntoView?.({ behavior: "smooth", block: "end" });
@@ -198,17 +217,38 @@ export default function GroupRoom({ group, user, onBack }) {
             </span>
           </div>
         </div>
-        {integrants && (
-          <div className="avatar-stack" aria-label={`${integrants.length} integrantes`}>
-            {integrants.slice(0, 4).map((m) => (
-              <Avatar key={m.id ?? m.name} name={m.name} size="sm" />
-            ))}
-            {integrants.length > 4 && (
-              <span className="avatar avatar-sm avatar-more">+{integrants.length - 4}</span>
-            )}
-          </div>
-        )}
+        <div className="room-head-side">
+          {integrants && (
+            <div className="avatar-stack" aria-label={`${integrants.length} integrantes`}>
+              {integrants.slice(0, 4).map((m) => (
+                <Avatar key={m.id ?? m.name} name={m.name} size="sm" />
+              ))}
+              {integrants.length > 4 && (
+                <span className="avatar avatar-sm avatar-more">+{integrants.length - 4}</span>
+              )}
+            </div>
+          )}
+          {isOwner ? (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onManage(group)}>
+              Administrar
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={leaving}
+              onClick={leave}
+            >
+              {leaving ? "Saliendo…" : "Abandonar grupo"}
+            </button>
+          )}
+        </div>
       </header>
+      {leaveError && (
+        <p className="form-error" role="alert">
+          {leaveError}
+        </p>
+      )}
 
       <div className="room-layout">
         {/* ---------- Asistente (chatbot) ---------- */}

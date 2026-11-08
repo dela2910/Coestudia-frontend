@@ -48,7 +48,7 @@ src/
 ├── api/
 │   ├── client.js      # request() base, token de sesión y URL del backend
 │   ├── auth.js        # registro, verificación del correo, login y sesión
-│   ├── groups.js      # buscar y filtrar grupos
+│   ├── groups.js      # buscar, crear, solicitudes, administrar y abandonar grupos
 │   ├── profile.js     # editar el perfil y «mis asignaturas»
 │   ├── files.js       # archivos del grupo: subir, listar, descargar y eliminar
 │   └── assistant.js   # asistente IA (simulado)
