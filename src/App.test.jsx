@@ -1112,7 +1112,8 @@ describe("Espacio del grupo", () => {
     // jsdom no implementa los enlaces temporales a archivos
     const createObjectURL = vi.fn(() => "blob:guia");
     URL.createObjectURL = createObjectURL;
-    URL.revokeObjectURL = vi.fn();
+    const revokeObjectURL = vi.fn();
+    URL.revokeObjectURL = revokeObjectURL;
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
     // Se restaura aunque falle una aserción, para no afectar a las pruebas siguientes
     try {
@@ -1124,7 +1125,18 @@ describe("Espacio del grupo", () => {
       expect(createObjectURL).toHaveBeenCalledWith(blob);
       const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/descarga"));
       expect(options.headers.Authorization).toBe("Bearer jwt-de-prueba");
+      // El enlace temporal se libera 1 s después del clic
+      await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:guia"), {
+        timeout: 2000,
+      });
     } finally {
+      // Si el enlace se creó pero aún no se libera, se espera antes de quitar el mock: si no, el
+      // temporizador fallaría después, en otra prueba
+      if (createObjectURL.mock.calls.length > 0) {
+        await waitFor(() => expect(revokeObjectURL).toHaveBeenCalled(), { timeout: 2000 }).catch(
+          () => {},
+        );
+      }
       click.mockRestore();
       delete URL.createObjectURL;
       delete URL.revokeObjectURL;
