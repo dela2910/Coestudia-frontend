@@ -30,7 +30,10 @@ describe("toFile", () => {
       puede_eliminar: true,
     });
     expect(file).toMatchObject({ id: 3, name: "Guía.pdf", size: 2048, uploadedBy: "Ana Rojas", canDelete: true });
-    expect(file.date).toMatch(/5/);
+    // La fecha se muestra en la zona horaria local, igual que la calcula toFile
+    expect(file.date).toBe(
+      new Date("2026-11-05T15:00:00Z").toLocaleDateString("es-CL", { day: "numeric", month: "short" }),
+    );
   });
 });
 
