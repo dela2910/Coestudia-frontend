@@ -49,19 +49,23 @@ export const errorMessage = (error) =>
   error instanceof ApiError ? error.message : "No pudimos conectar con el servidor. Intenta de nuevo.";
 
 // Llamada base a la API: todas las funciones de src/api/ deben usarla.
-// Envía y recibe JSON y agrega el token de sesión si existe.
-export async function request(path, { method = "GET", body } = {}) {
+// Envía y recibe JSON y agrega el token de sesión si existe. Un FormData (archivos) se envía tal
+// cual; con blob: true la respuesta se devuelve como Blob (descargas).
+export async function request(path, { method = "GET", body, blob = false } = {}) {
+  const isForm = body instanceof FormData;
   const headers = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  // Con FormData el navegador pone el Content-Type con el separador de las partes
+  if (body !== undefined && !isForm) headers["Content-Type"] = "application/json";
   const token = getToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
   const res = await fetch(`${API_URL}${path}`, {
     method,
     headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body: body === undefined || isForm ? body : JSON.stringify(body),
   });
 
+  if (blob && res.ok) return res.blob();
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     const detail = readDetail(data, res.status);

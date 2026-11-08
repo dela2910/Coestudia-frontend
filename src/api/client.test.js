@@ -77,6 +77,26 @@ describe("request", () => {
     onSessionExpired(null);
   });
 
+  it("envía un FormData sin Content-Type para que el navegador lo arme", async () => {
+    const fetchMock = mockFetch(201, { id: 1 });
+    const form = new FormData();
+    form.append("archivo", new File(["x"], "a.pdf"));
+
+    await request("/api/grupos/1/archivos", { method: "POST", body: form });
+
+    expect(fetchMock.mock.calls[0][1]).toEqual({ method: "POST", headers: {}, body: form });
+  });
+
+  it("devuelve un Blob si se pide la respuesta como archivo", async () => {
+    const file = new Blob(["contenido"]);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, blob: () => Promise.resolve(file) }),
+    );
+
+    expect(await request("/api/archivos/1/descarga", { blob: true })).toBe(file);
+  });
+
   it("usa un mensaje genérico si el error no trae detail", async () => {
     mockFetch(500, null);
     await expect(request("/api/hello")).rejects.toThrow("Error 500");

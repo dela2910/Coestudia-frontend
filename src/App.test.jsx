@@ -87,7 +87,20 @@ const DEFAULT_ROUTES = {
   "GET /api/solicitudes/mias": () => [200, []],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
+  "GET /api/grupos/11/archivos": () => [200, []],
 };
+
+// Archivo tal como lo devuelve GET /api/grupos/{id}/archivos
+const apiFile = (id, nombre, fields = {}) => ({
+  id,
+  nombre,
+  tipo_mime: "application/pdf",
+  tamano_bytes: 2048,
+  subido_por: "Ana Rojas",
+  creado_en: "2026-11-05T15:00:00Z",
+  puede_eliminar: false,
+  ...fields,
+});
 
 // Simula el backend: cada ruta "MÉTODO /ruta" responde [status, json]. Devuelve el mock de fetch.
 const mockApi = (routes = {}) => {
@@ -1032,16 +1045,122 @@ describe("Espacio del grupo", () => {
     await waitFor(() => expect(screen.queryByLabelText(/integrantes/)).not.toBeInTheDocument());
   });
 
+  it("muestra los archivos que ya tiene el grupo", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [
+        200,
+        [apiFile(1, "Guía integrales.pdf"), apiFile(2, "Mis apuntes.pdf", { puede_eliminar: true })],
+      ],
+    });
+    await openRoom();
+
+    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
+    expect(await within(files).findByText("Guía integrales.pdf")).toBeInTheDocument();
+    expect(within(files).getAllByText(/2 KB · Ana Rojas/)).toHaveLength(2);
+    // Solo se puede eliminar lo que el backend permite
+    expect(within(files).queryByLabelText("Eliminar Guía integrales.pdf")).not.toBeInTheDocument();
+    expect(within(files).getByLabelText("Eliminar Mis apuntes.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Usando 2 archivos")).toBeInTheDocument();
+  });
+
+  it("avisa si no se pudieron cargar los archivos", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [403, { detail: "Solo los integrantes del grupo pueden ver sus archivos." }],
+    });
+    await openRoom();
+
+    expect(
+      await screen.findByText("Solo los integrantes del grupo pueden ver sus archivos."),
+    ).toBeInTheDocument();
+  });
+
+  it("elimina un archivo en el backend", async () => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [200, [apiFile(5, "Borrador.pdf", { puede_eliminar: true })]],
+      "DELETE /api/archivos/5": () => [204, null],
+    });
+    await openRoom();
+
+    fireEvent.click(await screen.findByLabelText("Eliminar Borrador.pdf"));
+
+    expect(await screen.findByText("Sin archivos")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/archivos/5"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("descarga un archivo con la sesión", async () => {
+    const blob = new Blob(["contenido"]);
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [200, [apiFile(5, "Guía.pdf")]],
+    });
+    // La descarga devuelve el archivo, no JSON
+    const apiFetch = globalThis.fetch;
+    const fetchMock = vi.fn((url, options = {}) =>
+      url.endsWith("/api/archivos/5/descarga")
+        ? Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(blob) })
+        : apiFetch(url, options),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // jsdom no implementa los enlaces temporales a archivos
+    const createObjectURL = vi.fn(() => "blob:guia");
+    URL.createObjectURL = createObjectURL;
+    URL.revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    await openRoom();
+
+    fireEvent.click(await screen.findByLabelText("Descargar Guía.pdf"));
+
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    expect(createObjectURL).toHaveBeenCalledWith(blob);
+    const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/descarga"));
+    expect(options.headers.Authorization).toBe("Bearer jwt-de-prueba");
+    click.mockRestore();
+    delete URL.createObjectURL;
+    delete URL.revokeObjectURL;
+  });
+
+  it("no sube archivos de tipos no permitidos", async () => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+    });
+    await openRoom();
+
+    const file = new File(["<html>"], "pagina.html", { type: "text/html" });
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
+
+    expect(await screen.findByText(/"pagina.html" no se puede subir/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/archivos"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("responde preguntas usando los archivos que se suben", async () => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "POST /api/grupos/11/archivos": () => [
+        201,
+        apiFile(9, "Apuntes clase 5.pdf", { subido_por: "Benjamín Soto", puede_eliminar: true }),
+      ],
+    });
     await openRoom();
 
     const file = new File(["apuntes"], "Apuntes clase 5.pdf", { type: "application/pdf" });
     fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
 
     const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
-    expect(within(files).getByText("Apuntes clase 5.pdf")).toBeInTheDocument();
+    expect(await within(files).findByText("Apuntes clase 5.pdf")).toBeInTheDocument();
     expect(screen.getByText(/leí "Apuntes clase 5.pdf"/)).toBeInTheDocument();
     expect(screen.getByText("Usando 1 archivo")).toBeInTheDocument();
+    // Se envía como FormData con el campo "archivo"
+    const [, upload] = fetchMock.mock.calls.find(([, o]) => o?.method === "POST" && o.body instanceof FormData);
+    expect(upload.body.get("archivo").name).toBe("Apuntes clase 5.pdf");
 
     fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
       target: { value: "Resume los archivos" },
