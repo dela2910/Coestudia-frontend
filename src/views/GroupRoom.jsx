@@ -3,13 +3,15 @@ import { askAssistant } from "../api/assistant";
 import { errorMessage } from "../api/client";
 import { deleteFile, downloadFile, getFiles, uploadFile } from "../api/files";
 import { getGroup, leaveGroup } from "../api/groups";
+import GroupForum from "../components/GroupForum";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
 import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
-// Espacio interno de un grupo: asistente de estudio (chatbot) a la izquierda y
-// archivos compartidos a la derecha. El asistente responde usando esos archivos.
-// Los archivos se guardan en el backend (B12); el asistente todavía es una simulación local (B13).
+// Espacio interno de un grupo: a la izquierda, en pestañas, el foro del grupo (B16) y el
+// asistente de estudio (chatbot); a la derecha, los archivos compartidos. El asistente responde
+// usando esos archivos. Los archivos se guardan en el backend (B12); el asistente todavía es una
+// simulación local (B13).
 
 const SUGGESTIONS = ["Resume los archivos", "Hazme preguntas de práctica", "Explícame un concepto"];
 
@@ -48,6 +50,8 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   const [dragging, setDragging] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState("");
+  // Pestaña del panel izquierdo: "forum" o "assistant"
+  const [panel, setPanel] = useState("forum");
   const fileInput = useRef(null);
   const chatEnd = useRef(null);
   // Contador para los ids de los mensajes del chat
@@ -251,105 +255,139 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       )}
 
       <div className="room-layout">
-        {/* ---------- Asistente (chatbot) ---------- */}
-        <section className="card chat" aria-label="Asistente de estudio">
-          <div className="panel-head">
-            <span className="bot-avatar bot-avatar-sm">
-              <Icon name="sparkles" size={16} />
-            </span>
-            <h2>Asistente de estudio</h2>
-            <span className="badge badge-soft">
-              Usando {fileCount} {fileCount === 1 ? "archivo" : "archivos"}
-            </span>
-          </div>
-
-          <ol className="chat-messages">
-            {messages.map((msg) => {
-              const mine = msg.role === "user";
-              return (
-                <li key={msg.id} className={`msg ${mine ? "msg-mine" : ""}`}>
-                  {mine ? (
-                    <Avatar name={user.name} size="sm" />
-                  ) : (
-                    <span className="bot-avatar">
-                      <Icon name="sparkles" size={18} />
-                    </span>
-                  )}
-                  <div className="msg-body">
-                    <div className={`msg-bubble ${msg.error ? "msg-error" : ""}`}>
-                      <p>{msg.text}</p>
-                      {msg.sources?.length > 0 && (
-                        <div className="msg-sources">
-                          <span>Fuentes:</span>
-                          {msg.sources.map((s) => (
-                            <span key={s} className="msg-file">
-                              <Icon name="file" size={14} />
-                              {s}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-            {thinking && (
-              <li className="msg">
-                <span className="bot-avatar">
-                  <Icon name="sparkles" size={18} />
-                </span>
-                <div className="msg-bubble typing" aria-label="El asistente está escribiendo">
-                  <span />
-                  <span />
-                  <span />
-                </div>
-              </li>
-            )}
-            <li ref={chatEnd} aria-hidden="true" />
-          </ol>
-
-          <div className="suggestions">
-            {SUGGESTIONS.map((s) => (
-              <button
-                key={s}
-                type="button"
-                className="pill pill-sm"
-                disabled={thinking}
-                onClick={() => ask(s)}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-
-          <form className="chat-input" onSubmit={onSubmit}>
+        <section className="card chat" aria-label="Foro y asistente">
+          <div className="tabs room-tabs" role="tablist">
             <button
               type="button"
-              className="input-action"
-              aria-label="Adjuntar archivo"
-              onClick={openPicker}
+              role="tab"
+              aria-selected={panel === "forum"}
+              className={`tab ${panel === "forum" ? "tab-active" : ""}`}
+              onClick={() => setPanel("forum")}
             >
-              <Icon name="paperclip" size={20} />
+              <Icon name="chat" size={16} /> Foro
             </button>
-            <input
-              placeholder="Pregúntale algo sobre los archivos…"
-              aria-label="Pregunta al asistente"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-            />
             <button
-              type="submit"
-              className="btn btn-primary btn-sm chat-send"
-              aria-label="Enviar"
-              disabled={!draft.trim() || thinking}
+              type="button"
+              role="tab"
+              aria-selected={panel === "assistant"}
+              className={`tab ${panel === "assistant" ? "tab-active" : ""}`}
+              onClick={() => setPanel("assistant")}
             >
-              <Icon name="send" size={18} />
+              <Icon name="sparkles" size={16} /> Asistente
             </button>
-          </form>
-          <p className="chat-disclaimer">
-            El asistente puede equivocarse. Contrasta sus respuestas con el material.
-          </p>
+          </div>
+
+          {/* ---------- Foro del grupo ---------- */}
+          {/* Los dos paneles quedan montados para no perder lo escrito al cambiar de pestaña */}
+          <div className="chat-panel" role="tabpanel" aria-label="Foro del grupo" hidden={panel !== "forum"}>
+            <GroupForum groupId={group.id} user={user} />
+          </div>
+
+          {/* ---------- Asistente (chatbot) ---------- */}
+          <div
+            className="chat-panel"
+            role="tabpanel"
+            aria-label="Asistente de estudio"
+            hidden={panel !== "assistant"}
+          >
+            <div className="panel-head">
+              <span className="bot-avatar bot-avatar-sm">
+                <Icon name="sparkles" size={16} />
+              </span>
+              <h2>Asistente de estudio</h2>
+              <span className="badge badge-soft">
+                Usando {fileCount} {fileCount === 1 ? "archivo" : "archivos"}
+              </span>
+            </div>
+
+            <ol className="chat-messages">
+              {messages.map((msg) => {
+                const mine = msg.role === "user";
+                return (
+                  <li key={msg.id} className={`msg ${mine ? "msg-mine" : ""}`}>
+                    {mine ? (
+                      <Avatar name={user.name} size="sm" />
+                    ) : (
+                      <span className="bot-avatar">
+                        <Icon name="sparkles" size={18} />
+                      </span>
+                    )}
+                    <div className="msg-body">
+                      <div className={`msg-bubble ${msg.error ? "msg-error" : ""}`}>
+                        <p>{msg.text}</p>
+                        {msg.sources?.length > 0 && (
+                          <div className="msg-sources">
+                            <span>Fuentes:</span>
+                            {msg.sources.map((s) => (
+                              <span key={s} className="msg-file">
+                                <Icon name="file" size={14} />
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+              {thinking && (
+                <li className="msg">
+                  <span className="bot-avatar">
+                    <Icon name="sparkles" size={18} />
+                  </span>
+                  <div className="msg-bubble typing" aria-label="El asistente está escribiendo">
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                </li>
+              )}
+              <li ref={chatEnd} aria-hidden="true" />
+            </ol>
+
+            <div className="suggestions">
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className="pill pill-sm"
+                  disabled={thinking}
+                  onClick={() => ask(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            <form className="chat-input" onSubmit={onSubmit}>
+              <button
+                type="button"
+                className="input-action"
+                aria-label="Adjuntar archivo"
+                onClick={openPicker}
+              >
+                <Icon name="paperclip" size={20} />
+              </button>
+              <input
+                placeholder="Pregúntale algo sobre los archivos…"
+                aria-label="Pregunta al asistente"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+              />
+              <button
+                type="submit"
+                className="btn btn-primary btn-sm chat-send"
+                aria-label="Enviar"
+                disabled={!draft.trim() || thinking}
+              >
+                <Icon name="send" size={18} />
+              </button>
+            </form>
+            <p className="chat-disclaimer">
+              El asistente puede equivocarse. Contrasta sus respuestas con el material.
+            </p>
+          </div>
         </section>
 
         {/* ---------- Archivos ---------- */}

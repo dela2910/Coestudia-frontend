@@ -88,6 +88,7 @@ const DEFAULT_ROUTES = {
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
   "GET /api/grupos/11/archivos": () => [200, []],
+  "GET /api/grupos/11/foro": () => [200, []],
 };
 
 // Archivo tal como lo devuelve GET /api/grupos/{id}/archivos
@@ -1241,6 +1242,8 @@ describe("Espacio del grupo", () => {
     const [, upload] = fetchMock.mock.calls.find(([, o]) => o?.method === "POST" && o.body instanceof FormData);
     expect(upload.body.get("archivo").name).toBe("Apuntes clase 5.pdf");
 
+    // El espacio abre en el foro del grupo: el asistente está en la otra pestaña
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
     fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
       target: { value: "Resume los archivos" },
     });
@@ -1250,6 +1253,172 @@ describe("Espacio del grupo", () => {
       await screen.findByText(/Aquí va un resumen de el archivo/, {}, { timeout: 2000 }),
     ).toBeInTheDocument();
     expect(screen.getByText("Fuentes:")).toBeInTheDocument();
+  });
+});
+
+describe("Foro del grupo", () => {
+  const openRoom = async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+  };
+
+  const ISO = "2026-11-08T20:00:00Z";
+  // Temas tal como los devuelve el backend
+  const apiSummary = (id, titulo, fields = {}) => ({
+    id,
+    titulo,
+    autor: "Ana Rojas",
+    creado_en: ISO,
+    ultima_actividad_en: ISO,
+    total_respuestas: 0,
+    ...fields,
+  });
+  const apiTopic = (id, titulo, fields = {}) => ({
+    id,
+    titulo,
+    autor: "Ana Rojas",
+    es_mio: false,
+    contenido: "¿Cómo parto la integral?",
+    creado_en: ISO,
+    respuestas: [],
+    ...fields,
+  });
+  const apiReply = (id, contenido, fields = {}) => ({
+    id,
+    autor: "Ana Rojas",
+    es_mia: false,
+    contenido,
+    creado_en: ISO,
+    ...fields,
+  });
+
+  const withRoutes = (routes = {}) =>
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      ...routes,
+    });
+
+  it("abre en el foro y muestra los temas del grupo", async () => {
+    withRoutes({
+      "GET /api/grupos/11/foro": () => [
+        200,
+        [apiSummary(2, "Guía 2 – Ejercicio 3", { total_respuestas: 2 }), apiSummary(1, "Avisos")],
+      ],
+    });
+    await openRoom();
+
+    expect(screen.getByRole("tab", { name: "Foro" })).toHaveAttribute("aria-selected", "true");
+    const list = await screen.findByRole("list", { name: "Temas del foro" });
+    expect(within(list).getByText("Guía 2 – Ejercicio 3")).toBeInTheDocument();
+    expect(within(list).getByText(/Ana Rojas · 2 respuestas/)).toBeInTheDocument();
+    expect(within(list).getByText(/Ana Rojas · 0 respuestas/)).toBeInTheDocument();
+  });
+
+  it("muestra un aviso cuando todavía no hay temas", async () => {
+    withRoutes();
+    await openRoom();
+
+    expect(await screen.findByText("Todavía no hay temas")).toBeInTheDocument();
+  });
+
+  it("abre un tema nuevo y queda dentro de él", async () => {
+    const fetchMock = withRoutes({
+      "POST /api/grupos/11/foro": (options) => {
+        const body = JSON.parse(options.body);
+        return [201, apiTopic(5, body.titulo, { contenido: body.contenido, autor: "Benjamín Soto", es_mio: true })];
+      },
+    });
+    await openRoom();
+    await screen.findByText("Todavía no hay temas");
+
+    fireEvent.click(screen.getByRole("button", { name: "Nuevo tema" }));
+    const publish = screen.getByRole("button", { name: "Publicar tema" });
+    expect(publish).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: " Guía 2 – Ejercicio 3 " } });
+    fireEvent.change(screen.getByLabelText("Pregunta o enunciado"), { target: { value: "¿Cómo parto?" } });
+    fireEvent.click(publish);
+
+    expect(await screen.findByRole("heading", { name: "Guía 2 – Ejercicio 3" })).toBeInTheDocument();
+    expect(screen.getByText("¿Cómo parto?")).toBeInTheDocument();
+    expect(screen.getByText("0 respuestas")).toBeInTheDocument();
+    const [, sent] = fetchMock.mock.calls.find(([url, o]) => o?.method === "POST" && url.endsWith("/foro"));
+    expect(JSON.parse(sent.body)).toEqual({ titulo: "Guía 2 – Ejercicio 3", contenido: "¿Cómo parto?" });
+
+    // Al volver, el tema aparece en la lista
+    fireEvent.click(screen.getByRole("button", { name: "Temas" }));
+    const list = screen.getByRole("list", { name: "Temas del foro" });
+    expect(within(list).getByText("Guía 2 – Ejercicio 3")).toBeInTheDocument();
+  });
+
+  it("muestra las respuestas de un tema y permite responder", async () => {
+    const fetchMock = withRoutes({
+      "GET /api/grupos/11/foro": () => [200, [apiSummary(3, "Guía 2 – Ejercicio 3", { total_respuestas: 1 })]],
+      "GET /api/foro/3": () => [
+        200,
+        apiTopic(3, "Guía 2 – Ejercicio 3", { respuestas: [apiReply(1, "Usa integración por partes")] }),
+      ],
+      "POST /api/foro/3/respuestas": (options) => [
+        201,
+        apiReply(2, JSON.parse(options.body).contenido, { autor: "Benjamín Soto", es_mia: true }),
+      ],
+    });
+    await openRoom();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Guía 2 – Ejercicio 3/ }));
+    const replies = await screen.findByRole("list", { name: "Respuestas" });
+    expect(within(replies).getByText("Usa integración por partes")).toBeInTheDocument();
+    expect(screen.getByText("1 respuesta")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Tu respuesta"), { target: { value: "¡Gracias, me resultó!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Responder" }));
+
+    expect(await within(replies).findByText("¡Gracias, me resultó!")).toBeInTheDocument();
+    // Las respuestas propias aparecen como «Tú»
+    expect(within(replies).getByText("Tú")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tu respuesta")).toHaveValue("");
+    const [, sent] = fetchMock.mock.calls.find(([url, o]) => o?.method === "POST" && url.endsWith("/respuestas"));
+    expect(JSON.parse(sent.body)).toEqual({ contenido: "¡Gracias, me resultó!" });
+
+    // En la lista, el tema suma la respuesta
+    fireEvent.click(screen.getByRole("button", { name: "Temas" }));
+    expect(screen.getByText(/2 respuestas/)).toBeInTheDocument();
+  });
+
+  it("solo consulta al backend al abrir y con «Actualizar»", async () => {
+    let calls = 0;
+    withRoutes({
+      "GET /api/grupos/11/foro": () => {
+        calls += 1;
+        return [200, calls === 1 ? [] : [apiSummary(4, "Tema nuevo de Ana")]];
+      },
+    });
+    await openRoom();
+    await screen.findByText("Todavía no hay temas");
+    expect(calls).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    expect(await screen.findByText("Tema nuevo de Ana")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it("muestra el error si no se puede responder y conserva lo escrito", async () => {
+    withRoutes({
+      "GET /api/grupos/11/foro": () => [200, [apiSummary(3, "Ejercicio 3")]],
+      "GET /api/foro/3": () => [200, apiTopic(3, "Ejercicio 3")],
+      "POST /api/foro/3/respuestas": () => [404, { detail: "Este tema no existe." }],
+    });
+    await openRoom();
+    fireEvent.click(await screen.findByRole("button", { name: /Ejercicio 3/ }));
+
+    const input = await screen.findByLabelText("Tu respuesta");
+    fireEvent.change(input, { target: { value: "Hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Responder" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Este tema no existe.");
+    expect(input).toHaveValue("Hola");
   });
 });
 
