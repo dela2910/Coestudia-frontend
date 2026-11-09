@@ -94,7 +94,8 @@ export default function GroupForum({ groupId, user }) {
     goTo(id);
     setTopic(null);
     setReplyText("");
-    loadTopic(id);
+    // loadTopic muestra sus propios errores: no hay nada que esperar aquí
+    void loadTopic(id);
   };
 
   const backToList = () => {
@@ -147,7 +148,9 @@ export default function GroupForum({ groupId, user }) {
     }
   };
 
-  const refresh = () => (view === "list" ? loadTopics() : loadTopic(view));
+  const refresh = () => {
+    void (view === "list" ? loadTopics() : loadTopic(view));
+  };
 
   const errorBox = error && (
     <p className="form-error" role="alert">
