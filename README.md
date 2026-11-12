@@ -12,11 +12,7 @@ cp .env.example .env.local      # ajusta VITE_API_URL si hace falta
 npm run dev
 ```
 
-Abre http://localhost:5173. La página llama a `GET /api/hello` del backend y muestra:
-
-- **Cargando**: mientras espera la respuesta.
-- **Éxito**: el mensaje del backend y "Backend conectado".
-- **Error**: si el backend no responde, junto a la URL que intentó usar.
+Abre http://localhost:5173.
 
 Para usar el backend local, levántalo en `http://localhost:8000` (ver README del backend). También
 puedes apuntar `VITE_API_URL` al backend en producción: `https://coestudia-backend.onrender.com`.

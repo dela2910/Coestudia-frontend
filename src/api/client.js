@@ -78,7 +78,3 @@ export async function request(path, { method = "GET", body, blob = false } = {})
   }
   return data;
 }
-
-export function getHello() {
-  return request("/api/hello");
-}

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { login, register } from "../api/auth";
 import { ApiError, errorMessage } from "../api/client";
 import AuthHero from "../components/AuthHero";
-import BackendStatus from "../components/BackendStatus";
 import Icon from "../components/Icon";
 import { PASSWORD_RULES, passwordIsStrong, passwordTooLong } from "../data/password";
 import { universityFromEmail } from "../data/universities";
@@ -281,8 +280,6 @@ export default function Login({
               {isLogin ? "Crear cuenta" : "Inicia sesión"}
             </button>
           </p>
-
-          <BackendStatus />
         </form>
       </main>
     </div>
