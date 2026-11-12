@@ -108,7 +108,17 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
     getConversation(group.id)
       .then((history) => active && setMessages(withWelcome(group.subject, history)))
       .catch(() => {
-        // Sin historial el asistente igual funciona: se empieza con el saludo
+        // El asistente igual funciona, pero se avisa que faltan los mensajes del grupo
+        if (!active) return;
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `l${nextId.current++}`,
+            role: "bot",
+            text: "No pudimos cargar la conversación del grupo. Prueba con «Actualizar».",
+            error: true,
+          },
+        ]);
       });
     return () => {
       active = false;
@@ -217,7 +227,8 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   const ask = async (question) => {
     const text = question.trim();
     if (!text || thinking) return;
-    addMessage({ role: "user", text, isMine: true });
+    const questionId = `l${nextId.current++}`;
+    addMessage({ id: questionId, role: "user", text, isMine: true });
     setDraft("");
     setThinking(true);
     try {
@@ -225,7 +236,10 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       // Se recarga la conversación para ver también lo que preguntaron los demás mientras tanto
       if (!(await loadConversation())) addMessage({ ...answer, id: `s${answer.id}` });
     } catch (err) {
-      // Por ejemplo: límite diario de preguntas o asistente no disponible
+      // Por ejemplo: límite diario de preguntas o asistente no disponible. El backend no guardó
+      // la pregunta: se saca de la conversación y vuelve al cuadro de texto para reintentarla
+      setMessages((prev) => prev.filter((m) => m.id !== questionId));
+      setDraft((current) => current || text);
       addMessage({ role: "bot", text: errorMessage(err), error: true });
     } finally {
       setThinking(false);

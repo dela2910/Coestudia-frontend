@@ -1359,6 +1359,20 @@ describe("Espacio del grupo", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hazme preguntas de práctica" }));
 
     expect(await screen.findByText(/máximo de 40 preguntas/)).toBeInTheDocument();
+    // El backend no guardó la pregunta: sale de la conversación y vuelve al cuadro de texto
+    expect(screen.queryByText("Hazme preguntas de práctica", { selector: "p" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Pregunta al asistente")).toHaveValue("Hazme preguntas de práctica");
+  });
+
+  it("avisa si no pudo cargar la conversación del grupo", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/asistente": () => [500, { detail: "Error interno" }],
+    });
+    await openRoom();
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+
+    expect(await screen.findByText(/No pudimos cargar la conversación del grupo/)).toBeInTheDocument();
   });
 });
 
