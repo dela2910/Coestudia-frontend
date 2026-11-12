@@ -1740,6 +1740,13 @@ textarea::placeholder {
   align-items: flex-end;
 }
 
+.msg-author {
+  padding-left: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ink-faint);
+}
+
 .msg-bubble {
   display: flex;
   flex-direction: column;

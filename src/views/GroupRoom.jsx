@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { askAssistant } from "../api/assistant";
+import { MAX_QUESTION_LENGTH, askAssistant, clearConversation, getConversation } from "../api/assistant";
 import { errorMessage } from "../api/client";
 import { deleteFile, downloadFile, getFiles, uploadFile } from "../api/files";
 import { getGroup, leaveGroup } from "../api/groups";
@@ -10,10 +10,16 @@ import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
 // Espacio interno de un grupo: a la izquierda, en pestañas, el foro del grupo (B16) y el
 // asistente de estudio (chatbot); a la derecha, los archivos compartidos. El asistente responde
-// usando esos archivos. Los archivos se guardan en el backend (B12); el asistente todavía es una
-// simulación local (B13).
+// solo con esos archivos (B13, Claude desde el backend). La conversación con el asistente es de todo
+// el grupo: todos ven las preguntas de todos. Como el foro, se actualiza al abrir, después de cada
+// respuesta y con «Actualizar», sin consultas periódicas.
 
-const SUGGESTIONS = ["Resume los archivos", "Hazme preguntas de práctica", "Explícame un concepto"];
+const SUGGESTIONS = [
+  "Resume los archivos",
+  "Hazme preguntas de práctica",
+  "Arma un control de 5 preguntas con pauta",
+  "Explícame el concepto más importante",
+];
 
 const formatSize = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
@@ -29,8 +35,14 @@ const fileExtension = (name) => {
 const welcome = (subject) => ({
   id: 0,
   role: "bot",
-  text: `¡Hola! Soy el asistente de estudio de ${subject}. Leo los archivos que suba el grupo y respondo tus dudas usando ese material. ¿Por dónde empezamos?`,
+  text: `¡Hola! Soy el asistente de estudio de ${subject}. Leo los archivos que suba el grupo (PDF, Word, PowerPoint o texto) y respondo solo con ese material: resúmenes, preguntas de práctica, cuestionarios o controles. ¿Por dónde empezamos?`,
 });
+
+// Mensajes del backend con ids propios, para no chocar con los avisos locales
+const withWelcome = (subject, history) => [
+  welcome(subject),
+  ...history.map((m) => ({ ...m, id: `s${m.id}` })),
+];
 
 // onLeft: el usuario abandonó el grupo; onManage: el creador abre la administración
 export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
@@ -47,6 +59,8 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   const [messages, setMessages] = useState(() => [welcome(group.subject)]);
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [leaveError, setLeaveError] = useState("");
@@ -54,7 +68,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   const [panel, setPanel] = useState("forum");
   const fileInput = useRef(null);
   const chatEnd = useRef(null);
-  // Contador para los ids de los mensajes del chat
+  // Contador para los ids de los mensajes que no vienen del backend (avisos y errores)
   const nextId = useRef(1);
 
   useEffect(() => {
@@ -77,6 +91,37 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       active = false;
     };
   }, [group.id]);
+
+  // Conversación del grupo con el asistente, después del saludo. Los avisos locales (archivo
+  // subido, errores) se reemplazan por lo que hay en el backend. Devuelve false si falló.
+  const loadConversation = async () => {
+    try {
+      setMessages(withWelcome(group.subject, await getConversation(group.id)));
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    getConversation(group.id)
+      .then((history) => active && setMessages(withWelcome(group.subject, history)))
+      .catch(() => {
+        // Sin historial el asistente igual funciona: se empieza con el saludo
+      });
+    return () => {
+      active = false;
+    };
+  }, [group.id, group.subject]);
+
+  const refresh = async () => {
+    setSyncing(true);
+    if (!(await loadConversation())) {
+      addMessage({ role: "bot", text: "No pudimos actualizar la conversación.", error: true });
+    }
+    setSyncing(false);
+  };
 
   useEffect(() => {
     if (group.integrants) return;
@@ -112,7 +157,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   }, [messages, thinking]);
 
   const addMessage = (msg) =>
-    setMessages((prev) => [...prev, { id: nextId.current++, ...msg }]);
+    setMessages((prev) => [...prev, { ...msg, id: msg.id ?? `l${nextId.current++}` }]);
 
   // Se suben de a uno; si alguno falla, los demás siguen
   const addFiles = async (fileList) => {
@@ -139,8 +184,8 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       role: "bot",
       text:
         added.length === 1
-          ? `Listo, leí "${added[0].name}". Ya puedes preguntarme sobre su contenido.`
-          : `Listo, leí ${added.length} archivos nuevos. Ya puedes preguntarme sobre ellos.`,
+          ? `Listo, subiste "${added[0].name}". Ya puedes preguntarme sobre su contenido.`
+          : `Listo, subiste ${added.length} archivos nuevos. Ya puedes preguntarme sobre ellos.`,
     });
   };
 
@@ -172,20 +217,32 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   const ask = async (question) => {
     const text = question.trim();
     if (!text || thinking) return;
-    addMessage({ role: "user", text });
+    addMessage({ role: "user", text, isMine: true });
     setDraft("");
     setThinking(true);
     try {
-      const answer = await askAssistant({ question: text, files: files ?? [] });
-      addMessage({ role: "bot", text: answer.text, sources: answer.sources });
-    } catch {
-      addMessage({
-        role: "bot",
-        text: "No pude responder ahora. Intenta de nuevo en un momento.",
-        error: true,
-      });
+      const answer = await askAssistant(group.id, text);
+      // Se recarga la conversación para ver también lo que preguntaron los demás mientras tanto
+      if (!(await loadConversation())) addMessage({ ...answer, id: `s${answer.id}` });
+    } catch (err) {
+      // Por ejemplo: límite diario de preguntas o asistente no disponible
+      addMessage({ role: "bot", text: errorMessage(err), error: true });
     } finally {
       setThinking(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!window.confirm("¿Borrar la conversación del grupo con el asistente? La borras para todos."))
+      return;
+    setClearing(true);
+    try {
+      await clearConversation(group.id);
+      setMessages([welcome(group.subject)]);
+    } catch (err) {
+      addMessage({ role: "bot", text: errorMessage(err), error: true });
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -298,21 +355,43 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
               <span className="badge badge-soft">
                 Usando {fileCount} {fileCount === 1 ? "archivo" : "archivos"}
               </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                disabled={syncing || thinking}
+                onClick={refresh}
+              >
+                {syncing ? "Actualizando…" : "Actualizar"}
+              </button>
+              {/* Solo el creador del grupo puede borrarla (también lo revisa el backend) */}
+              {isOwner && messages.length > 1 && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  disabled={thinking || clearing}
+                  onClick={clear}
+                >
+                  Borrar conversación
+                </button>
+              )}
             </div>
 
             <ol className="chat-messages">
               {messages.map((msg) => {
-                const mine = msg.role === "user";
+                const mine = msg.role === "user" && msg.isMine;
+                // Pregunta de otro integrante: va a la izquierda, con su nombre
+                const other = msg.role === "user" && !msg.isMine;
                 return (
                   <li key={msg.id} className={`msg ${mine ? "msg-mine" : ""}`}>
-                    {mine ? (
-                      <Avatar name={user.name} size="sm" />
+                    {mine || other ? (
+                      <Avatar name={mine ? user.name : msg.author} size="sm" />
                     ) : (
                       <span className="bot-avatar">
                         <Icon name="sparkles" size={18} />
                       </span>
                     )}
                     <div className="msg-body">
+                      {other && <span className="msg-author">{msg.author}</span>}
                       <div className={`msg-bubble ${msg.error ? "msg-error" : ""}`}>
                         <p>{msg.text}</p>
                         {msg.sources?.length > 0 && (
@@ -373,6 +452,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
                 placeholder="Pregúntale algo sobre los archivos…"
                 aria-label="Pregunta al asistente"
                 value={draft}
+                maxLength={MAX_QUESTION_LENGTH}
                 onChange={(e) => setDraft(e.target.value)}
               />
               <button
