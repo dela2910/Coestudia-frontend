@@ -86,6 +86,8 @@ const DEFAULT_ROUTES = {
   "GET /api/solicitudes/mias": () => [200, []],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
+  "GET /api/sugerencias/grupos": () => [200, []],
+  "GET /api/sugerencias/asignaturas": () => [200, []],
   "GET /api/grupos/11/archivos": () => [200, []],
   "GET /api/grupos/11/foro": () => [200, []],
   "GET /api/grupos/11/asistente": () => [200, []],
@@ -366,6 +368,119 @@ describe("App", () => {
     // Al recargar el detalle sigue la solicitud enviada antes
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar solicitud" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No tienes una solicitud pendiente");
+  });
+});
+
+describe("Sugerencias", () => {
+  // Asignatura tal como la devuelve GET /api/sugerencias/asignaturas
+  const apiSuggestedSubject = (id, sigla, nombre, grupos, motivo = null) => ({
+    asignatura: { id, sigla, nombre },
+    grupos_disponibles: grupos,
+    motivo,
+  });
+
+  it("muestra grupos sugeridos con sus motivos y abre el detalle", async () => {
+    mockApi({
+      "GET /api/sugerencias/grupos": () => [
+        200,
+        [{ ...apiGroups[1], motivos: ["Lo cursan 3 estudiantes de tu carrera", "Grupo nuevo"] }],
+      ],
+    });
+    await login();
+
+    const section = (await screen.findByRole("heading", { name: "Sugeridos para ti" })).closest(
+      "section",
+    );
+    const reasons = within(section).getByRole("list", { name: "Por qué te lo sugerimos" });
+    expect(within(reasons).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Lo cursan 3 estudiantes de tu carrera",
+      "Grupo nuevo",
+    ]);
+
+    fireEvent.click(within(section).getByRole("button", { name: /Física I/ }));
+    expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
+  });
+
+  it("sin sugerencias o si fallan, no muestra la sección", async () => {
+    mockApi({ "GET /api/sugerencias/grupos": () => [500, { detail: "Error" }] });
+    await login();
+
+    // Espera a que se resuelva la llamada de sugerencias
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Sugeridos para ti" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Buscar asignatura")).toBeInTheDocument();
+  });
+
+  it("al enfocar el buscador propone asignaturas y al elegir una busca sus grupos", async () => {
+    const fetchMock = mockApi({
+      "GET /api/sugerencias/asignaturas": () => [
+        200,
+        [
+          apiSuggestedSubject(1, "MAT1620", "Cálculo II", 2, "Está en tus asignaturas"),
+          apiSuggestedSubject(2, "FIS1513", "Física I", 1),
+        ],
+      ],
+    });
+    await login();
+
+    const input = screen.getByRole("combobox", { name: "Buscar asignatura" });
+    fireEvent.focus(input);
+
+    expect(await screen.findByText("Búsquedas sugeridas")).toBeInTheDocument();
+    const options = screen.getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent("MAT1620 · Cálculo II");
+    expect(options[0]).toHaveTextContent("Está en tus asignaturas");
+    expect(options[0]).toHaveTextContent("2 grupos");
+    expect(input).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(options[1]);
+
+    expect(await screen.findByText("Encontramos 1 grupo")).toBeInTheDocument();
+    const searches = fetchMock.mock.calls.filter(
+      ([url]) => new URL(url).pathname === "/api/grupos",
+    );
+    expect(new URL(searches.at(-1)[0]).searchParams.get("q")).toBe("FIS1513");
+  });
+
+  it("autocompleta lo escrito y se maneja con el teclado", async () => {
+    const fetchMock = mockApi({
+      "GET /api/sugerencias/asignaturas": (options, url) => {
+        const q = new URL(url).searchParams.get("q");
+        return q
+          ? [200, [apiSuggestedSubject(1, "MAT1620", "Cálculo II", 0)]]
+          : [200, [apiSuggestedSubject(2, "FIS1513", "Física I", 1)]];
+      },
+    });
+    await login();
+
+    const input = screen.getByRole("combobox", { name: "Buscar asignatura" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "calc" } });
+
+    const option = await screen.findByRole("option", { name: /MAT1620/ });
+    expect(screen.getByText("Asignaturas")).toBeInTheDocument();
+    expect(option).toHaveTextContent("Sin grupos aún");
+    const asked = fetchMock.mock.calls
+      .map(([url]) => new URL(url))
+      .filter((url) => url.pathname === "/api/sugerencias/asignaturas");
+    expect(asked.at(-1).searchParams.get("q")).toBe("calc");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(option).toHaveAttribute("aria-selected", "true");
+    expect(input).toHaveAttribute("aria-activedescendant", option.id);
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    // Flecha abajo vuelve a abrir la lista; la segunda marca la opción y Enter la elige
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    await screen.findByRole("option", { name: /MAT1620/ });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByText("Encontramos 2 grupos")).toBeInTheDocument();
   });
 });
 
