@@ -211,6 +211,7 @@ function App() {
               setFilters(next);
               navigate("results");
             }}
+            onOpen={openGroup}
             onCreate={() => navigate("create")}
           />
         )}

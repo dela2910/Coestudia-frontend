@@ -1,9 +1,11 @@
 import { useState } from "react";
 import Icon from "../components/Icon";
+import SearchBox from "../components/SearchBox";
+import SuggestedGroups from "../components/SuggestedGroups";
 import { ToggleGroup } from "../components/ui";
 import { BLOCKS, DAYS, MODALITIES } from "../data/mock";
 
-export default function Home({ user, initialFilters, onSearch, onCreate }) {
+export default function Home({ user, initialFilters, onSearch, onOpen, onCreate }) {
   const [query, setQuery] = useState(initialFilters.query);
   const [isOnline, setIsOnline] = useState(initialFilters.isOnline);
   const [days, setDays] = useState(initialFilters.days);
@@ -35,19 +37,14 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
           search();
         }}
       >
-        <div className="search-bar">
-          <Icon name="search" size={22} />
-          <input
-            type="search"
-            placeholder="Buscar por ramo o sigla… (ej: Cálculo II, MAT1620)"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            aria-label="Buscar asignatura"
-          />
-          <button type="submit" className="btn btn-primary">
-            Buscar
-          </button>
-        </div>
+        <SearchBox
+          query={query}
+          onQueryChange={setQuery}
+          onPick={(code) => {
+            setQuery(code);
+            search(code);
+          }}
+        />
 
         <div className="filters">
           <div className="filter">
@@ -81,6 +78,8 @@ export default function Home({ user, initialFilters, onSearch, onCreate }) {
           </button>
         )}
       </form>
+
+      <SuggestedGroups onOpen={onOpen} />
 
       <section className="section">
         <h2 className="section-title">Tus ramos</h2>
