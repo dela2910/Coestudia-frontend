@@ -10,8 +10,10 @@ const MINUTES = Array.from({ length: 12 }, (_, i) => pad(i * 5));
 export default function TimeSelect({ value, onChange, label }) {
   const [hour = "", minute = ""] = value ? value.split(":") : [];
   // Si llega un minuto que no está en la lista (ej. 10:07), igual se muestra
-  const minutes = minute && !MINUTES.includes(minute) ? [...MINUTES, minute].sort((a, b) => a.localeCompare(b))
-    : MINUTES;
+  const minutes =
+    minute && !MINUTES.includes(minute)
+      ? [...MINUTES, minute].sort((a, b) => a.localeCompare(b))
+      : MINUTES;
 
   const setHour = (h) => onChange(h ? `${h}:${minute || "00"}` : "");
   const setMinute = (m) => onChange(`${hour || "00"}:${m}`);
