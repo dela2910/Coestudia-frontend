@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   requestToJoin,
-  scheduleChoices,
   searchGroups,
   toGroup,
   toGroupDetail,
@@ -20,8 +19,8 @@ const grupo = {
   abierto: true,
   vigente_hasta: "2026-12-04",
   horarios: [
-    { dia_semana: 0, es_manana: true },
-    { dia_semana: 2, es_manana: false },
+    { dia_semana: 0, hora_inicio: "09:00", hora_fin: "11:00" },
+    { dia_semana: 2, hora_inicio: "15:00", hora_fin: "17:00" },
   ],
 };
 
@@ -38,8 +37,8 @@ describe("toGroup", () => {
       isOpen: true,
       validUntil: "2026-12-04",
       schedule: [
-        { day: 0, isMorning: true },
-        { day: 2, isMorning: false },
+        { day: 0, start: "09:00", end: "11:00" },
+        { day: 2, start: "15:00", end: "17:00" },
       ],
     });
   });
@@ -64,7 +63,8 @@ describe("searchGroups", () => {
       query: " fis 1513 ",
       isOnline: false,
       days: [1, 3],
-      blocks: [true, false],
+      from: "14:00",
+      to: "",
     });
 
     const url = new URL(fetchMock.mock.calls[0][0]);
@@ -72,13 +72,14 @@ describe("searchGroups", () => {
     expect(url.searchParams.get("q")).toBe("fis 1513");
     expect(url.searchParams.get("es_online")).toBe("false");
     expect(url.searchParams.getAll("dia")).toEqual(["1", "3"]);
-    expect(url.searchParams.getAll("es_manana")).toEqual(["true", "false"]);
+    expect(url.searchParams.get("desde")).toBe("14:00");
+    expect(url.searchParams.has("hasta")).toBe(false);
     expect(result[0].code).toBe("MAT1620");
   });
 
   it("omite los filtros vacíos", async () => {
     const fetchMock = mockFetch();
-    await searchGroups({ query: "  ", isOnline: null, days: [], blocks: [] });
+    await searchGroups({ query: "  ", isOnline: null, days: [], from: "", to: "" });
     expect(fetchMock.mock.calls[0][0]).toMatch(/\/api\/grupos$/);
   });
 });
@@ -204,8 +205,10 @@ describe("updateGroup", () => {
       isOnline: false,
       place: " Biblioteca ",
       link: "https://ignorado",
-      days: [0, 2],
-      blocks: [true],
+      schedule: [
+        { day: 0, start: "09:00", end: "11:00" },
+        { day: 2, start: "09:00", end: "11:00" },
+      ],
       capacity: 5,
       validUntil: "2026-12-04",
       isOpen: false,
@@ -222,23 +225,11 @@ describe("updateGroup", () => {
       cupo_maximo: 5,
       vigente_hasta: "2026-12-04",
       horarios: [
-        { dia_semana: 0, es_manana: true },
-        { dia_semana: 2, es_manana: true },
+        { dia_semana: 0, hora_inicio: "09:00", hora_fin: "11:00" },
+        { dia_semana: 2, hora_inicio: "09:00", hora_fin: "11:00" },
       ],
       abierto: false,
     });
     expect(result.place).toBe("Biblioteca");
-  });
-});
-
-describe("scheduleChoices", () => {
-  it("separa los días y bloques de los horarios", () => {
-    expect(
-      scheduleChoices([
-        { day: 2, isMorning: false },
-        { day: 0, isMorning: true },
-        { day: 2, isMorning: true },
-      ]),
-    ).toEqual({ days: [0, 2], blocks: [false, true] });
   });
 });

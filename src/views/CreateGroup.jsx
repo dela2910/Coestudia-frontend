@@ -3,16 +3,9 @@ import { errorMessage } from "../api/client";
 import { createGroup } from "../api/groups";
 import { getSubjectCatalog } from "../api/profile";
 import Icon from "../components/Icon";
-import { CapacityBar, EmptyState, ToggleGroup } from "../components/ui";
-import {
-  BLOCKS,
-  DAYS,
-  MODALITIES,
-  blockLabel,
-  dayLabel,
-  formatDate,
-  modalityLabel,
-} from "../data/mock";
+import ScheduleEditor from "../components/ScheduleEditor";
+import { CapacityBar, EmptyState } from "../components/ui";
+import { MODALITIES, formatDate, modalityLabel, scheduleError, scheduleLabel } from "../data/mock";
 import { findSubject, normalizeCode, subjectLabel } from "../data/subjects";
 
 const MAX_DESCRIPTION = 280;
@@ -35,8 +28,8 @@ export default function CreateGroup({ user, onOpen }) {
   const [isOnline, setIsOnline] = useState(false);
   const [place, setPlace] = useState("");
   const [link, setLink] = useState("");
-  const [days, setDays] = useState([]);
-  const [blocks, setBlocks] = useState([]);
+  // HORARIO_GRUPO: [{ day, start, end }]; se parte con una fila vacía
+  const [schedule, setSchedule] = useState([{ day: 0, start: "", end: "" }]);
   const [capacity, setCapacity] = useState(4);
   // GRUPO_ESTUDIO.vigente_hasta: después de esta fecha el grupo se elimina por vigencia
   const [validUntil, setValidUntil] = useState("");
@@ -61,12 +54,15 @@ export default function CreateGroup({ user, onOpen }) {
   const existing = code.trim() ? findSubject(subjects, code) : null;
   const subjectName = existing ? existing.name : newName.trim();
   const meetingPoint = isOnline ? link.trim() : place.trim();
+  const scheduleProblem = scheduleError(schedule);
+  // Mientras falten horas no se muestra el error: solo cuando están todas y algo no calza
+  const filledSchedule = schedule.filter((h) => h.start && h.end);
+  const showScheduleProblem = scheduleProblem && filledSchedule.length === schedule.length;
   const canPublish =
     code.trim() &&
     subjectName &&
     meetingPoint &&
-    days.length > 0 &&
-    blocks.length > 0 &&
+    !scheduleProblem &&
     validUntil >= tomorrow &&
     !saving;
   // Los ramos del usuario aparecen primero en el autocompletado.
@@ -86,8 +82,7 @@ export default function CreateGroup({ user, onOpen }) {
         isOnline,
         place,
         link,
-        days,
-        blocks,
+        schedule,
         capacity,
         validUntil,
       });
@@ -240,18 +235,13 @@ export default function CreateGroup({ user, onOpen }) {
               </label>
             )}
             <div className="field">
-              <span className="field-label">Días</span>
-              <ToggleGroup label="Días" options={DAYS} value={days} onChange={setDays} multiple />
-            </div>
-            <div className="field">
-              <span className="field-label">Bloques</span>
-              <ToggleGroup
-                label="Bloques"
-                options={BLOCKS}
-                value={blocks}
-                onChange={setBlocks}
-                multiple
-              />
+              <span className="field-label">Horarios</span>
+              <ScheduleEditor value={schedule} onChange={setSchedule} />
+              {showScheduleProblem && (
+                <p className="form-error" role="alert">
+                  {scheduleProblem}
+                </p>
+              )}
             </div>
             <label className="field">
               <span className="field-label">Vigente hasta</span>
@@ -310,8 +300,8 @@ export default function CreateGroup({ user, onOpen }) {
           </button>
           {!canPublish && !saving && (
             <p className="field-hint center">
-              Completa la asignatura, el {isOnline ? "enlace" : "lugar"}, al menos un día y un
-              bloque, y hasta cuándo estará vigente.
+              Completa la asignatura, el {isOnline ? "enlace" : "lugar"}, al menos un horario y
+              hasta cuándo estará vigente.
             </p>
           )}
         </form>
@@ -335,8 +325,7 @@ export default function CreateGroup({ user, onOpen }) {
                 </span>
                 <span className="meta-item">
                   <Icon name="calendar" size={16} />
-                  {days.length ? days.map(dayLabel).join(", ") : "Sin días"} ·{" "}
-                  {blocks.length ? blocks.map(blockLabel).join(", ") : "Sin bloque"}
+                  {filledSchedule.length ? scheduleLabel(filledSchedule) : "Sin horario"}
                 </span>
                 {validUntil && (
                   <span className="meta-item">

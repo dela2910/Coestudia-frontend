@@ -25,7 +25,7 @@ describe("getSuggestedGroups", () => {
         miembros: 2,
         abierto: true,
         vigente_hasta: "2026-12-04",
-        horarios: [{ dia_semana: 1, es_manana: false }],
+        horarios: [{ dia_semana: 1, hora_inicio: "15:00", hora_fin: "17:00" }],
         motivos: ["Cursas MAT1620", "Grupo nuevo"],
       },
     ]);
@@ -39,7 +39,7 @@ describe("getSuggestedGroups", () => {
       id: 7,
       code: "MAT1620",
       subject: "Cálculo II",
-      schedule: [{ day: 1, isMorning: false }],
+      schedule: [{ day: 1, start: "15:00", end: "17:00" }],
       reasons: ["Cursas MAT1620", "Grupo nuevo"],
     });
   });

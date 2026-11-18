@@ -2,25 +2,32 @@ import { useState } from "react";
 import Icon from "../components/Icon";
 import SearchBox from "../components/SearchBox";
 import SuggestedGroups from "../components/SuggestedGroups";
+import TimeSelect from "../components/TimeSelect";
 import { ToggleGroup } from "../components/ui";
-import { BLOCKS, DAYS, MODALITIES } from "../data/mock";
+import { DAYS, MODALITIES } from "../data/mock";
 
 export default function Home({ user, initialFilters, onSearch, onOpen, onCreate }) {
   const [query, setQuery] = useState(initialFilters.query);
   const [isOnline, setIsOnline] = useState(initialFilters.isOnline);
   const [days, setDays] = useState(initialFilters.days);
-  const [blocks, setBlocks] = useState(initialFilters.blocks);
+  // Rango de horas "HH:MM"; vacío = sin límite
+  const [from, setFrom] = useState(initialFilters.from);
+  const [to, setTo] = useState(initialFilters.to);
 
   const firstName = user.name.split(" ")[0];
-  const hasFilters = isOnline !== null || days.length > 0 || blocks.length > 0;
+  const hasFilters = isOnline !== null || days.length > 0 || from || to;
+  const badRange = from && to && to <= from;
 
-  const search = (overrideQuery) =>
-    onSearch({ query: overrideQuery ?? query, isOnline, days, blocks });
+  const search = (overrideQuery) => {
+    if (badRange) return;
+    onSearch({ query: overrideQuery ?? query, isOnline, days, from, to });
+  };
 
   const clearFilters = () => {
     setIsOnline(null);
     setDays([]);
-    setBlocks([]);
+    setFrom("");
+    setTo("");
   };
 
   return (
@@ -61,16 +68,22 @@ export default function Home({ user, initialFilters, onSearch, onOpen, onCreate 
             <ToggleGroup label="Día" options={DAYS} value={days} onChange={setDays} multiple />
           </div>
           <div className="filter">
-            <span className="filter-label">Bloque</span>
-            <ToggleGroup
-              label="Bloque"
-              options={BLOCKS}
-              value={blocks}
-              onChange={setBlocks}
-              multiple
-            />
+            <span className="filter-label">Horario</span>
+            <div className="time-range">
+              <span className="time-field">
+                Desde <TimeSelect label="Desde" value={from} onChange={setFrom} />
+              </span>
+              <span className="time-field">
+                Hasta <TimeSelect label="Hasta" value={to} onChange={setTo} />
+              </span>
+            </div>
           </div>
         </div>
+        {badRange && (
+          <p className="form-error" role="alert">
+            La hora «Hasta» debe ser después de «Desde».
+          </p>
+        )}
 
         {hasFilters && (
           <button type="button" className="link-btn small" onClick={clearFilters}>
