@@ -17,16 +17,23 @@ export const toGroup = (grupo) => ({
   members: grupo.miembros,
   isOpen: grupo.abierto,
   validUntil: grupo.vigente_hasta,
-  schedule: grupo.horarios.map((h) => ({ day: h.dia_semana, isMorning: h.es_manana })),
+  // El backend manda "HH:MM"; slice por si llegan segundos
+  schedule: grupo.horarios.map((h) => ({
+    day: h.dia_semana,
+    start: h.hora_inicio.slice(0, 5),
+    end: h.hora_fin.slice(0, 5),
+  })),
 });
 
-// filters: { query, isOnline (null = cualquiera), days: [0-5], blocks: [isMorning] }
-export async function searchGroups({ query, isOnline, days, blocks }) {
+// filters: { query, isOnline (null = cualquiera), days: [0-5], from y to: "HH:MM" o "" }.
+// Con horas, calzan los grupos con algún horario que se cruce con ese rango.
+export async function searchGroups({ query, isOnline, days, from, to }) {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query.trim());
   if (isOnline !== null) params.set("es_online", String(isOnline));
   days.forEach((day) => params.append("dia", String(day)));
-  blocks.forEach((isMorning) => params.append("es_manana", String(isMorning)));
+  if (from) params.set("desde", from);
+  if (to) params.set("hasta", to);
   const qs = params.toString();
   const grupos = await request(`/api/grupos${qs ? `?${qs}` : ""}`);
   return grupos.map(toGroup);
@@ -54,31 +61,15 @@ export const toGroupDetail = (grupo) => ({
 
 export const getGroup = async (id) => toGroupDetail(await request(`/api/grupos/${id}`));
 
-// Datos del grupo que comparten crear y editar. Se guarda cada combinación de los días y bloques
-// elegidos, salvo que venga schedule: los horarios exactos que ya tenía el grupo (al editar sin
-// tocar días ni bloques, para no agregar combinaciones que no estaban).
-const groupBody = ({
-  description,
-  isOnline,
-  place,
-  link,
-  days,
-  blocks,
-  schedule,
-  capacity,
-  validUntil,
-}) => ({
+// Datos del grupo que comparten crear y editar. schedule: [{ day, start, end }]
+const groupBody = ({ description, isOnline, place, link, schedule, capacity, validUntil }) => ({
   descripcion: description.trim() || null,
   es_online: isOnline,
   lugar: isOnline ? null : place.trim(),
   enlace: isOnline ? link.trim() : null,
   cupo_maximo: capacity,
   vigente_hasta: validUntil,
-  horarios: schedule
-    ? schedule.map((h) => ({ dia_semana: h.day, es_manana: h.isMorning }))
-    : days.flatMap((day) =>
-        blocks.map((isMorning) => ({ dia_semana: day, es_manana: isMorning })),
-      ),
+  horarios: schedule.map((h) => ({ dia_semana: h.day, hora_inicio: h.start, hora_fin: h.end })),
 });
 
 // Crear grupo: POST /api/grupos. subjectName solo se usa si la sigla aún no existe (el backend
@@ -104,12 +95,6 @@ export const updateGroup = async (id, { isOpen, ...fields }) =>
       body: { ...groupBody(fields), abierto: isOpen },
     }),
   );
-
-// Días y bloques elegidos a partir de los horarios del grupo, para llenar el formulario
-export const scheduleChoices = (schedule) => ({
-  days: [...new Set(schedule.map((h) => h.day))].sort((a, b) => a - b),
-  blocks: [...new Set(schedule.map((h) => h.isMorning))],
-});
 
 export const deleteGroup = (id) => request(`/api/grupos/${id}`, { method: "DELETE" });
 

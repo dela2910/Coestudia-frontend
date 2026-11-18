@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
-import { deleteGroup, getGroup, removeMember, scheduleChoices, updateGroup } from "../api/groups";
+import { deleteGroup, getGroup, removeMember, updateGroup } from "../api/groups";
 import Icon from "../components/Icon";
-import { Avatar, BackButton, ToggleGroup } from "../components/ui";
-import { BLOCKS, DAYS, MODALITIES } from "../data/mock";
+import ScheduleEditor from "../components/ScheduleEditor";
+import { Avatar, BackButton } from "../components/ui";
+import { MODALITIES, scheduleError } from "../data/mock";
 
 // Administrar un grupo propio (B10): editar sus datos, cerrarlo o reabrirlo, expulsar
 // integrantes y eliminarlo. Solo lo ve el creador.
@@ -26,18 +27,8 @@ const formFrom = (group) => ({
   link: group.link ?? "",
   capacity: group.capacity,
   validUntil: group.validUntil,
-  ...scheduleChoices(group.schedule),
+  schedule: group.schedule,
 });
-
-const sameItems = (a, b) => a.length === b.length && a.every((item) => b.includes(item));
-
-// Si no se tocaron los días ni los bloques, se mandan los horarios exactos del grupo: armar todas
-// las combinaciones agregaría algunas que no tenía (ej. lunes mañana y miércoles tarde)
-const withSchedule = (form, group) => {
-  const current = scheduleChoices(group.schedule);
-  const untouched = sameItems(form.days, current.days) && sameItems(form.blocks, current.blocks);
-  return untouched ? { ...form, schedule: group.schedule } : form;
-};
 
 // busy: hay otra acción en curso (guardar, cerrar, expulsar o eliminar); onSave guarda los datos
 // y devuelve true si funcionó. Los errores los muestra la vista.
@@ -53,10 +44,10 @@ function EditForm({ group, busy, onSave }) {
   // El cupo no puede quedar bajo los integrantes actuales (el backend lo rechaza)
   const minCapacity = Math.max(MIN_CAPACITY, group.members);
   const meetingPoint = form.isOnline ? form.link.trim() : form.place.trim();
+  const scheduleProblem = scheduleError(form.schedule);
   const canSave =
     meetingPoint &&
-    form.days.length > 0 &&
-    form.blocks.length > 0 &&
+    !scheduleProblem &&
     form.validUntil >= tomorrow &&
     !busy;
 
@@ -118,18 +109,13 @@ function EditForm({ group, busy, onSave }) {
         </label>
       )}
       <div className="field">
-        <span className="field-label">Días</span>
-        <ToggleGroup label="Días" options={DAYS} value={form.days} onChange={set("days")} multiple />
-      </div>
-      <div className="field">
-        <span className="field-label">Bloques</span>
-        <ToggleGroup
-          label="Bloques"
-          options={BLOCKS}
-          value={form.blocks}
-          onChange={set("blocks")}
-          multiple
-        />
+        <span className="field-label">Horarios</span>
+        <ScheduleEditor value={form.schedule} onChange={set("schedule")} />
+        {scheduleProblem && (
+          <p className="form-error" role="alert">
+            {scheduleProblem}
+          </p>
+        )}
       </div>
       <label className="field">
         <span className="field-label">Vigente hasta</span>
@@ -221,16 +207,12 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
   };
 
   const save = (form) =>
-    act(() => updateGroup(group.id, { ...withSchedule(form, group), isOpen: group.isOpen }));
+    act(() => updateGroup(group.id, { ...form, isOpen: group.isOpen }));
 
   // Solo cambia si recibe solicitudes: el resto, incluidos los horarios, queda igual
   const toggleOpen = () =>
     act(() =>
-      updateGroup(group.id, {
-        ...formFrom(group),
-        schedule: group.schedule,
-        isOpen: !group.isOpen,
-      }),
+      updateGroup(group.id, { ...formFrom(group), isOpen: !group.isOpen }),
     );
 
   const expel = async (member) => {

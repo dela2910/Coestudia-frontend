@@ -25,7 +25,7 @@ const apiGroup = (id, sigla, nombre, fields = {}) => ({
   miembros: 2,
   abierto: true,
   vigente_hasta: "2026-12-04",
-  horarios: [{ dia_semana: 1, es_manana: false }],
+  horarios: [{ dia_semana: 1, hora_inicio: "15:00", hora_fin: "17:00" }],
   ...fields,
 });
 const apiGroups = [
@@ -147,6 +147,20 @@ afterEach(() => {
   setToken(null);
   window.history.replaceState(null, "", "/");
 });
+
+// Elige una hora "HH:MM" en un TimeSelect (listas de hora y minutos)
+function pickTime(scope, label, time) {
+  const [hour, minute] = time.split(":");
+  fireEvent.change(scope.getByLabelText(`${label}, hora`), { target: { value: hour } });
+  fireEvent.change(scope.getByLabelText(`${label}, minutos`), { target: { value: minute } });
+}
+
+// Completa una fila de horarios del formulario de grupo (por defecto, la primera)
+function fillSchedule(day, start, end, scope = screen) {
+  fireEvent.change(scope.getByLabelText("Día"), { target: { value: String(day) } });
+  pickTime(scope, "Inicio", start);
+  pickTime(scope, "Fin", end);
+}
 
 describe("App", () => {
   beforeEach(() => {
@@ -428,7 +442,7 @@ describe("Sugerencias", () => {
     fireEvent.focus(input);
 
     expect(await screen.findByText("Búsquedas sugeridas")).toBeInTheDocument();
-    const options = screen.getAllByRole("option");
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
     expect(options).toHaveLength(2);
     expect(options[0]).toHaveTextContent("MAT1620 · Cálculo II");
     expect(options[0]).toHaveTextContent("Está en tus asignaturas");
@@ -888,8 +902,7 @@ describe("Crear grupo", () => {
     expect((await screen.findAllByText("Cálculo II")).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText(/Nombre del ramo/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fillSchedule(0, "15:00", "17:00");
     expect(publish()).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
@@ -907,12 +920,45 @@ describe("Crear grupo", () => {
       enlace: null,
       cupo_maximo: 4,
       vigente_hasta: "2099-12-01",
-      horarios: [{ dia_semana: 0, es_manana: false }],
+      horarios: [{ dia_semana: 0, hora_inicio: "15:00", hora_fin: "17:00" }],
     });
 
     // "Ver mi grupo" abre el detalle, donde ya aparece como integrante
     fireEvent.click(screen.getByRole("button", { name: "Ver mi grupo" }));
     expect(await screen.findByText("Biblioteca")).toBeInTheDocument();
+  });
+
+  it("permite varios horarios en formato 24 horas y avisa si se cruzan", async () => {
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "MAT1620" },
+    });
+    await screen.findAllByText("Cálculo II");
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    setValidUntil("2099-12-01");
+    fillSchedule(1, "10:15", "11:45");
+
+    // La fila nueva parte el día siguiente con las mismas horas
+    fireEvent.click(screen.getByRole("button", { name: /Agregar horario/ }));
+    const second = within(screen.getByRole("group", { name: "Horario 2" }));
+    expect(second.getByLabelText("Día")).toHaveValue("2");
+    expect(second.getByLabelText("Inicio, hora")).toHaveValue("10");
+    expect(second.getByLabelText("Inicio, minutos")).toHaveValue("15");
+
+    // Si ambos quedan el martes y se cruzan, no se puede publicar
+    fillSchedule(1, "11:00", "12:30", second);
+    expect(screen.getByRole("alert")).toHaveTextContent("Hay dos horarios del martes que se cruzan.");
+    expect(publish()).toBeDisabled();
+
+    fireEvent.change(second.getByLabelText("Día"), { target: { value: "3" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Mar 10:15–11:45 · Jue 11:00–12:30")).toBeInTheDocument();
+    fireEvent.click(publish());
+    await screen.findByText(/ya está visible/);
+    expect(sentGroup().horarios).toEqual([
+      { dia_semana: 1, hora_inicio: "10:15", hora_fin: "11:45" },
+      { dia_semana: 3, hora_inicio: "11:00", hora_fin: "12:30" },
+    ]);
   });
 
   it("muestra el error del backend y permite reintentar", async () => {
@@ -925,8 +971,7 @@ describe("Crear grupo", () => {
       target: { value: "MAT1620" },
     });
     await screen.findAllByText("Cálculo II");
-    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fillSchedule(0, "15:00", "17:00");
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
     setValidUntil("2099-12-01");
     fireEvent.click(publish());
@@ -946,8 +991,7 @@ describe("Crear grupo", () => {
       target: { value: "Programación Avanzada" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Online" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    fillSchedule(1, "09:00", "11:00");
     expect(publish()).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Enlace de la reunión/), {
@@ -965,7 +1009,7 @@ describe("Crear grupo", () => {
       es_online: true,
       lugar: null,
       enlace: "https://meet.google.com/abc",
-      horarios: [{ dia_semana: 1, es_manana: true }],
+      horarios: [{ dia_semana: 1, hora_inicio: "09:00", hora_fin: "11:00" }],
     });
   });
 
@@ -974,8 +1018,7 @@ describe("Crear grupo", () => {
     fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
       target: { value: "MAT1620" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fillSchedule(0, "15:00", "17:00");
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
 
     setValidUntil("2020-01-01");
@@ -1701,7 +1744,8 @@ describe("Buscador", () => {
     fireEvent.click(screen.getByRole("button", { name: "Online" }));
     fireEvent.click(screen.getByRole("button", { name: "Lun" }));
     fireEvent.click(screen.getByRole("button", { name: "Mié" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    pickTime(screen, "Desde", "14:30");
+    pickTime(screen, "Hasta", "18:00");
     searchFor("  calculo ");
     await screen.findByText(/Encontramos/);
 
@@ -1709,7 +1753,22 @@ describe("Buscador", () => {
     expect(params.get("q")).toBe("calculo");
     expect(params.get("es_online")).toBe("true");
     expect(params.getAll("dia")).toEqual(["0", "2"]);
-    expect(params.getAll("es_manana")).toEqual(["true"]);
+    expect(params.get("desde")).toBe("14:30");
+    expect(params.get("hasta")).toBe("18:00");
+    expect(screen.getByText("14:30–18:00")).toBeInTheDocument();
+  });
+
+  it("no busca si el rango de horas está al revés", async () => {
+    const fetchMock = mockApi();
+    await login();
+    const calls = fetchMock.mock.calls.length;
+
+    pickTime(screen, "Desde", "18:00");
+    pickTime(screen, "Hasta", "10:00");
+    searchFor("calculo");
+
+    expect(screen.getByRole("alert")).toHaveTextContent("«Hasta» debe ser después de «Desde»");
+    expect(fetchMock.mock.calls.slice(calls).some(([url]) => String(url).includes("/api/grupos?"))).toBe(false);
   });
 
   it("sin filtros no manda parámetros", async () => {
@@ -1900,7 +1959,7 @@ describe("Administrar grupo", () => {
       lugar: "Sala de estudio 3",
       cupo_maximo: 5,
       abierto: true,
-      horarios: [{ dia_semana: 1, es_manana: false }],
+      horarios: [{ dia_semana: 1, hora_inicio: "15:00", hora_fin: "17:00" }],
     });
     expect(screen.getByText("Integrantes (2/5)")).toBeInTheDocument();
   });
@@ -1950,8 +2009,8 @@ describe("Administrar grupo", () => {
 
   // Lunes mañana y miércoles tarde: no son todas las combinaciones de esos días y bloques
   const mixedSchedule = [
-    { dia_semana: 0, es_manana: true },
-    { dia_semana: 2, es_manana: false },
+    { dia_semana: 0, hora_inicio: "09:00", hora_fin: "11:00" },
+    { dia_semana: 2, hora_inicio: "15:00", hora_fin: "17:00" },
   ];
   const sentSchedule = (fetchMock) =>
     JSON.parse(fetchMock.mock.calls.find(([, o]) => o?.method === "PUT")[1].body).horarios;

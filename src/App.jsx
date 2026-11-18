@@ -16,7 +16,7 @@ import Results from "./views/Results";
 import VerifyEmail from "./views/VerifyEmail";
 import "./App.css";
 
-const EMPTY_FILTERS = { query: "", isOnline: null, days: [], blocks: [] };
+const EMPTY_FILTERS = { query: "", isOnline: null, days: [], from: "", to: "" };
 
 // Token del enlace de verificación que llega por correo: <frontend>/?verificar=<token>
 const verificationToken = () => new URLSearchParams(window.location.search).get("verificar");
