@@ -156,3 +156,7 @@ dist-ssr
 # Documentación personal (no se sube al repo)
 *.md
 !README.md
+
+# Playwright (tests e2e)
+test-results/
+playwright-report/
