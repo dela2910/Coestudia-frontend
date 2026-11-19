@@ -40,8 +40,8 @@ Además, el CI analiza:
 ### Tests e2e (Playwright)
 
 Prueban los flujos principales contra la app real: iniciar sesión, buscar un grupo y pedir
-ingreso (y que el creador acepte), crear un grupo, publicar y responder en el foro, y abandonar un
-grupo. Necesitan el repositorio del backend al lado (`../Coestudia-backend`) con su `.venv`
+ingreso (y que el creador acepte), crear un grupo, publicar y responder en el foro, administrar un
+grupo (editar, expulsar y cerrar) y abandonar un grupo. Necesitan el repositorio del backend al lado (`../Coestudia-backend`) con su `.venv`
 instalado.
 
 ```bash

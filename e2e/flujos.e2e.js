@@ -91,6 +91,24 @@ test('publica un tema en el foro del grupo y lo responde', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'Respuestas' })).toContainText('Dibuja la región primero')
 })
 
+test('el creador administra su grupo: edita, expulsa y lo cierra', async ({ page }) => {
+  // Ana creó el grupo de Cálculo II, con Luis y Sofía como integrantes
+  await login(page, ANA.email)
+  await goToMyGroups(page)
+  await page.getByRole('button', { name: 'Administrar Cálculo II' }).click()
+
+  await page.getByRole('button', { name: 'Aumentar cupo' }).click()
+  await page.getByRole('button', { name: 'Guardar cambios' }).click()
+  await expect(page.getByText('Cambios guardados.')).toBeVisible()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Expulsar a Luis Castro' }).click()
+  await expect(page.getByRole('button', { name: 'Expulsar a Luis Castro' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Cerrar grupo' }).click()
+  await expect(page.getByRole('button', { name: 'Reabrir grupo' })).toBeVisible()
+})
+
 test('abandona un grupo en el que participa', async ({ page }) => {
   // Benjamín participa en el grupo de Ingeniería de Software de Sofía
   await login(page, BENJAMIN)
