@@ -53,6 +53,9 @@ Levantan solos el backend en el puerto 8001 (con una base SQLite temporal y los 
 ejemplo de `python -m app.seed`) y el frontend en el 5174, así que no chocan con lo que tengas
 corriendo en desarrollo. Si el backend está en otra carpeta, usa `BACKEND_DIR=/ruta npm run test:e2e`.
 
+En el CI corren en el job **E2E (Playwright)** después de los tests unitarios: clona el backend
+(`main` en los PRs a `main`, `dev` en el resto) y, si falla, deja las trazas como artefacto.
+
 ## Estructura
 
 ```
