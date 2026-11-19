@@ -37,6 +37,22 @@ Además, el CI analiza:
   (`sonar-project.properties`) y falla si no se cumple el quality gate. Necesita el secret
   `SONAR_TOKEN`; sin él, el paso se omite con un aviso.
 
+### Tests e2e (Playwright)
+
+Prueban los flujos principales contra la app real: iniciar sesión, buscar un grupo y pedir
+ingreso (y que el creador acepte), crear un grupo, publicar y responder en el foro, y abandonar un
+grupo. Necesitan el repositorio del backend al lado (`../Coestudia-backend`) con su `.venv`
+instalado.
+
+```bash
+npx playwright install chromium   # solo la primera vez
+npm run test:e2e
+```
+
+Levantan solos el backend en el puerto 8001 (con una base SQLite temporal y los datos de
+ejemplo de `python -m app.seed`) y el frontend en el 5174, así que no chocan con lo que tengas
+corriendo en desarrollo. Si el backend está en otra carpeta, usa `BACKEND_DIR=/ruta npm run test:e2e`.
+
 ## Estructura
 
 ```
