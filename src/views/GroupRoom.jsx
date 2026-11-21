@@ -1,18 +1,38 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_QUESTION_LENGTH, askAssistant, clearConversation, getConversation } from "../api/assistant";
+import {
+  MAX_QUESTION_LENGTH,
+  askAssistant,
+  clearConversation,
+  getConversation,
+  getDailyLimit,
+} from "../api/assistant";
 import { errorMessage } from "../api/client";
 import { deleteFile, downloadFile, getFiles, uploadFile } from "../api/files";
+import { MAX_TEXT_LENGTH, MAX_TITLE_LENGTH, createTopic } from "../api/forum";
 import { getGroup, leaveGroup } from "../api/groups";
 import GroupForum from "../components/GroupForum";
 import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
 import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
-// Espacio interno de un grupo: a la izquierda, en pestañas, el foro del grupo (B16) y el
+// Espacio interno de un grupo: a la izquierda, en pestañas, el foro del grupo (B14) y el
 // asistente de estudio (chatbot); a la derecha, los archivos compartidos. El asistente responde
-// solo con esos archivos (B13, Claude desde el backend). La conversación con el asistente es de todo
-// el grupo: todos ven las preguntas de todos. Como el foro, se actualiza al abrir, después de cada
-// respuesta y con «Actualizar», sin consultas periódicas.
+// solo con esos archivos (B13, Claude desde el backend). Cada integrante tiene su propia
+// conversación con el asistente; una respuesta útil se puede compartir en el foro del grupo. La
+// respuesta se muestra mientras el asistente la escribe.
+
+// Recorta un texto a `max` caracteres, terminando en «…» si se cortó
+const cut = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+// Tema del foro con una respuesta del asistente y la pregunta que responde
+const forumPost = (question, answer) => {
+  const sources = answer.sources.length > 0 ? `\n\nFuentes: ${answer.sources.join(", ")}` : "";
+  const footer = `${sources}\n\n(Respuesta del asistente de estudio)`;
+  return {
+    title: cut(question ? `Asistente: ${question}` : "Respuesta del asistente", MAX_TITLE_LENGTH),
+    text: cut(answer.text, MAX_TEXT_LENGTH - footer.length) + footer,
+  };
+};
 
 const SUGGESTIONS = [
   "Resume los archivos",
@@ -35,7 +55,7 @@ const fileExtension = (name) => {
 const welcome = (subject) => ({
   id: 0,
   role: "bot",
-  text: `¡Hola! Soy el asistente de estudio de ${subject}. Leo los archivos que suba el grupo (PDF, Word, PowerPoint o texto) y respondo solo con ese material: resúmenes, preguntas de práctica, cuestionarios o controles. ¿Por dónde empezamos?`,
+  text: `¡Hola! Soy el asistente de estudio de ${subject}. Leo los archivos que suba el grupo (PDF, Word, PowerPoint o texto) y respondo solo con ese material: resúmenes, preguntas de práctica, cuestionarios o controles. Esta conversación es solo tuya. ¿Por dónde empezamos?`,
 });
 
 // Mensajes del backend con ids propios, para no chocar con los avisos locales
@@ -59,7 +79,16 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   const [messages, setMessages] = useState(() => [welcome(group.subject)]);
   const [draft, setDraft] = useState("");
   const [thinking, setThinking] = useState(false);
+  // Lo que lleva escrito el asistente mientras responde
+  const [partial, setPartial] = useState("");
   const [clearing, setClearing] = useState(false);
+  // Ids de las respuestas que se están compartiendo en el foro o que ya se compartieron
+  const [sharing, setSharing] = useState([]);
+  const [shared, setShared] = useState([]);
+  // Preguntas que le quedan hoy al usuario ({ remaining, max }); null si no se pudo saber
+  const [limit, setLimit] = useState(null);
+  // Cambia al compartir en el foro, para que el foro recargue sus temas
+  const [forumVersion, setForumVersion] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [leaving, setLeaving] = useState(false);
@@ -108,14 +137,14 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
     getConversation(group.id)
       .then((history) => active && setMessages(withWelcome(group.subject, history)))
       .catch(() => {
-        // El asistente igual funciona, pero se avisa que faltan los mensajes del grupo
+        // El asistente igual funciona, pero se avisa que faltan los mensajes anteriores
         if (!active) return;
         setMessages((prev) => [
           ...prev,
           {
             id: `l${nextId.current++}`,
             role: "bot",
-            text: "No pudimos cargar la conversación del grupo. Prueba con «Actualizar».",
+            text: "No pudimos cargar tu conversación con el asistente. Prueba con «Actualizar».",
             error: true,
           },
         ]);
@@ -124,6 +153,16 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       active = false;
     };
   }, [group.id, group.subject]);
+
+  // Sin el límite el asistente igual funciona: solo no se muestra cuántas preguntas quedan
+  const loadLimit = () =>
+    getDailyLimit()
+      .then(setLimit)
+      .catch(() => {});
+
+  useEffect(() => {
+    void loadLimit();
+  }, []);
 
   const refresh = async () => {
     setSyncing(true);
@@ -164,7 +203,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
 
   useEffect(() => {
     chatEnd.current?.scrollIntoView?.({ behavior: "smooth", block: "end" });
-  }, [messages, thinking]);
+  }, [messages, thinking, partial]);
 
   const addMessage = (msg) =>
     setMessages((prev) => [...prev, { ...msg, id: msg.id ?? `l${nextId.current++}` }]);
@@ -230,11 +269,11 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
     const questionId = `l${nextId.current++}`;
     addMessage({ id: questionId, role: "user", text, isMine: true });
     setDraft("");
+    setPartial("");
     setThinking(true);
     try {
-      const answer = await askAssistant(group.id, text);
-      // Se recarga la conversación para ver también lo que preguntaron los demás mientras tanto
-      if (!(await loadConversation())) addMessage({ ...answer, id: `s${answer.id}` });
+      const answer = await askAssistant(group.id, text, (part) => setPartial((prev) => prev + part));
+      addMessage({ ...answer, id: `s${answer.id}` });
     } catch (err) {
       // Por ejemplo: límite diario de preguntas o asistente no disponible. El backend no guardó
       // la pregunta: se saca de la conversación y vuelve al cuadro de texto para reintentarla
@@ -243,12 +282,34 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       addMessage({ role: "bot", text: errorMessage(err), error: true });
     } finally {
       setThinking(false);
+      setPartial("");
+      void loadLimit();
+    }
+  };
+
+  // Publica una respuesta del asistente como tema del foro, con la pregunta que responde
+  const share = async (answer) => {
+    if (sharing.includes(answer.id) || shared.includes(answer.id)) return;
+    if (!window.confirm("¿Compartir esta respuesta en el foro del grupo? La verán todos los integrantes."))
+      return;
+    const index = messages.findIndex((m) => m.id === answer.id);
+    const question = messages
+      .slice(0, index)
+      .findLast((m) => m.role === "user")?.text;
+    setSharing((prev) => [...prev, answer.id]);
+    try {
+      await createTopic(group.id, forumPost(question, answer));
+      setShared((prev) => [...prev, answer.id]);
+      setForumVersion((n) => n + 1);
+    } catch (err) {
+      addMessage({ role: "bot", text: errorMessage(err), error: true });
+    } finally {
+      setSharing((prev) => prev.filter((id) => id !== answer.id));
     }
   };
 
   const clear = async () => {
-    if (!window.confirm("¿Borrar la conversación del grupo con el asistente? La borras para todos."))
-      return;
+    if (!window.confirm("¿Borrar tu conversación con el asistente? Los demás no la ven.")) return;
     setClearing(true);
     try {
       await clearConversation(group.id);
@@ -352,7 +413,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
           {/* ---------- Foro del grupo ---------- */}
           {/* Los dos paneles quedan montados para no perder lo escrito al cambiar de pestaña */}
           <div className="chat-panel" role="tabpanel" aria-label="Foro del grupo" hidden={panel !== "forum"}>
-            <GroupForum groupId={group.id} user={user} />
+            <GroupForum groupId={group.id} user={user} refreshKey={forumVersion} />
           </div>
 
           {/* ---------- Asistente (chatbot) ---------- */}
@@ -378,8 +439,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
               >
                 {syncing ? "Actualizando…" : "Actualizar"}
               </button>
-              {/* Solo el creador del grupo puede borrarla (también lo revisa el backend) */}
-              {isOwner && messages.length > 1 && (
+              {messages.length > 1 && (
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
@@ -393,20 +453,20 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
 
             <ol className="chat-messages">
               {messages.map((msg) => {
-                const mine = msg.role === "user" && msg.isMine;
-                // Pregunta de otro integrante: va a la izquierda, con su nombre
-                const other = msg.role === "user" && !msg.isMine;
+                // La conversación es del usuario: todas las preguntas son suyas
+                const mine = msg.role === "user";
+                // Respuestas guardadas en el backend (no el saludo ni los avisos locales)
+                const savedAnswer = msg.role === "bot" && String(msg.id).startsWith("s");
                 return (
                   <li key={msg.id} className={`msg ${mine ? "msg-mine" : ""}`}>
-                    {mine || other ? (
-                      <Avatar name={mine ? user.name : msg.author} size="sm" />
+                    {mine ? (
+                      <Avatar name={user.name} size="sm" />
                     ) : (
                       <span className="bot-avatar">
                         <Icon name="sparkles" size={18} />
                       </span>
                     )}
                     <div className="msg-body">
-                      {other && <span className="msg-author">{msg.author}</span>}
                       <div className={`msg-bubble ${msg.error ? "msg-error" : ""}`}>
                         <p>{msg.text}</p>
                         {msg.sources?.length > 0 && (
@@ -421,11 +481,38 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
                           </div>
                         )}
                       </div>
+                      {msg.notice && <p className="msg-notice">{msg.notice}</p>}
+                      {savedAnswer && (
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-sm msg-share"
+                          disabled={sharing.includes(msg.id) || shared.includes(msg.id)}
+                          onClick={() => share(msg)}
+                        >
+                          {shared.includes(msg.id)
+                            ? "Compartida en el foro"
+                            : sharing.includes(msg.id)
+                              ? "Compartiendo…"
+                              : "Compartir en el foro"}
+                        </button>
+                      )}
                     </div>
                   </li>
                 );
               })}
-              {thinking && (
+              {thinking && partial && (
+                <li className="msg">
+                  <span className="bot-avatar">
+                    <Icon name="sparkles" size={18} />
+                  </span>
+                  <div className="msg-body">
+                    <div className="msg-bubble" aria-label="El asistente está escribiendo">
+                      <p>{partial}</p>
+                    </div>
+                  </div>
+                </li>
+              )}
+              {thinking && !partial && (
                 <li className="msg">
                   <span className="bot-avatar">
                     <Icon name="sparkles" size={18} />
@@ -480,6 +567,10 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
               </button>
             </form>
             <p className="chat-disclaimer">
+              {limit &&
+                (limit.remaining > 0
+                  ? `Te quedan ${limit.remaining} de ${limit.max} preguntas hoy. `
+                  : "Llegaste al máximo de preguntas de hoy. ")}
               El asistente puede equivocarse. Contrasta sus respuestas con el material.
             </p>
           </div>
