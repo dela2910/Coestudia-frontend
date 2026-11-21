@@ -50,8 +50,9 @@ export const errorMessage = (error) =>
 
 // Llamada base a la API: todas las funciones de src/api/ deben usarla.
 // Envía y recibe JSON y agrega el token de sesión si existe. Un FormData (archivos) se envía tal
-// cual; con blob: true la respuesta se devuelve como Blob (descargas).
-export async function request(path, { method = "GET", body, blob = false } = {}) {
+// cual; con blob: true la respuesta se devuelve como Blob (descargas) y con raw: true se devuelve
+// la respuesta de fetch sin leer (para leerla por partes, como la del asistente).
+export async function request(path, { method = "GET", body, blob = false, raw = false } = {}) {
   const isForm = body instanceof FormData;
   const headers = {};
   // Con FormData el navegador pone el Content-Type con el separador de las partes
@@ -66,6 +67,7 @@ export async function request(path, { method = "GET", body, blob = false } = {})
   });
 
   if (blob && res.ok) return res.blob();
+  if (raw && res.ok) return res;
   const data = res.status === 204 ? null : await res.json().catch(() => null);
   if (!res.ok) {
     const detail = readDetail(data, res.status);

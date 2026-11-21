@@ -2303,3 +2303,18 @@ textarea::placeholder {
     max-width: 90%;
   }
 }
+
+/* Aviso bajo una respuesta del asistente (material que no alcanzó a leer) */
+.msg-notice {
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+}
+
+/* Compartir una respuesta del asistente en el foro */
+.msg-share {
+  align-self: flex-start;
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.75rem;
+}

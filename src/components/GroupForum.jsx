@@ -30,7 +30,9 @@ function Post({ author, isMine, date, text, user }) {
   );
 }
 
-export default function GroupForum({ groupId, user }) {
+// refreshKey: al cambiar se recarga la lista de temas (por ejemplo, al compartir una respuesta del
+// asistente en el foro)
+export default function GroupForum({ groupId, user, refreshKey = 0 }) {
   // null mientras cargan
   const [topics, setTopics] = useState(null);
   // "list" | "new" | id del tema abierto
@@ -88,7 +90,7 @@ export default function GroupForum({ groupId, user }) {
     return () => {
       active = false;
     };
-  }, [groupId]);
+  }, [groupId, refreshKey]);
 
   const openTopic = (id) => {
     goTo(id);
