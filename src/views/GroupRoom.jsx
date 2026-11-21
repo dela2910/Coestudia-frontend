@@ -262,13 +262,14 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
 
   const onSubmit = (e) => {
     e.preventDefault();
-    ask(draft);
+    // ask muestra sus propios errores: no hay nada que esperar aquí
+    void ask(draft);
   };
 
   const onDrop = (e) => {
     e.preventDefault();
     setDragging(false);
-    addFiles(e.dataTransfer.files);
+    void addFiles(e.dataTransfer.files);
   };
 
   const openPicker = () => fileInput.current?.click();
@@ -521,7 +522,8 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
               hidden
               data-testid="file-input"
               onChange={(e) => {
-                addFiles(e.target.files);
+                // addFiles muestra sus propios errores: no hay nada que esperar aquí
+                void addFiles(e.target.files);
                 e.target.value = "";
               }}
             />
