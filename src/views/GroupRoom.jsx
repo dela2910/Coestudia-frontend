@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { MAX_QUESTION_LENGTH, askAssistant, clearConversation, getConversation } from "../api/assistant";
+import {
+  MAX_QUESTION_LENGTH,
+  askAssistant,
+  clearConversation,
+  getConversation,
+  getDailyLimit,
+} from "../api/assistant";
 import { errorMessage } from "../api/client";
 import { deleteFile, downloadFile, getFiles, uploadFile } from "../api/files";
 import { MAX_TEXT_LENGTH, MAX_TITLE_LENGTH, createTopic } from "../api/forum";
@@ -9,7 +15,7 @@ import Icon from "../components/Icon";
 import { Avatar, BackButton, EmptyState } from "../components/ui";
 import { meetingPoint, modalityLabel, scheduleLabel } from "../data/mock";
 
-// Espacio interno de un grupo: a la izquierda, en pestañas, el foro del grupo (B16) y el
+// Espacio interno de un grupo: a la izquierda, en pestañas, el foro del grupo (B14) y el
 // asistente de estudio (chatbot); a la derecha, los archivos compartidos. El asistente responde
 // solo con esos archivos (B13, Claude desde el backend). Cada integrante tiene su propia
 // conversación con el asistente; una respuesta útil se puede compartir en el foro del grupo. La
@@ -79,6 +85,8 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
   // Ids de las respuestas que se están compartiendo en el foro o que ya se compartieron
   const [sharing, setSharing] = useState([]);
   const [shared, setShared] = useState([]);
+  // Preguntas que le quedan hoy al usuario ({ remaining, max }); null si no se pudo saber
+  const [limit, setLimit] = useState(null);
   // Cambia al compartir en el foro, para que el foro recargue sus temas
   const [forumVersion, setForumVersion] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -145,6 +153,16 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       active = false;
     };
   }, [group.id, group.subject]);
+
+  // Sin el límite el asistente igual funciona: solo no se muestra cuántas preguntas quedan
+  const loadLimit = () =>
+    getDailyLimit()
+      .then(setLimit)
+      .catch(() => {});
+
+  useEffect(() => {
+    loadLimit();
+  }, []);
 
   const refresh = async () => {
     setSyncing(true);
@@ -265,6 +283,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
     } finally {
       setThinking(false);
       setPartial("");
+      loadLimit();
     }
   };
 
@@ -547,6 +566,10 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
               </button>
             </form>
             <p className="chat-disclaimer">
+              {limit &&
+                (limit.remaining > 0
+                  ? `Te quedan ${limit.remaining} de ${limit.max} preguntas hoy. `
+                  : "Llegaste al máximo de preguntas de hoy. ")}
               El asistente puede equivocarse. Contrasta sus respuestas con el material.
             </p>
           </div>

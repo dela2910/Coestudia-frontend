@@ -11,7 +11,10 @@ describe("toMessage", () => {
         es_mio: false,
         contenido: "Resumen del material",
         creado_en: "2026-11-12T15:00:00Z",
-        fuentes: [{ id: 9, nombre: "Guía 1.pdf" }],
+        fuentes: [
+          { id: 9, nombre: "Guía 1.pdf", ubicacion: "pág. 4" },
+          { id: 10, nombre: "Notas.txt", ubicacion: null },
+        ],
         aviso: "No alcancé a leer: Libro.pdf.",
       }),
     ).toEqual({
@@ -20,7 +23,7 @@ describe("toMessage", () => {
       author: null,
       isMine: false,
       text: "Resumen del material",
-      sources: ["Guía 1.pdf"],
+      sources: ["Guía 1.pdf, pág. 4", "Notas.txt"],
       notice: "No alcancé a leer: Libro.pdf.",
     });
   });

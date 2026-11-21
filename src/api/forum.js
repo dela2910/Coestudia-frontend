@@ -1,6 +1,6 @@
 import { request } from "./client";
 
-// Foro del grupo (B16): temas con su pregunta y respuestas debajo.
+// Foro del grupo (B14): temas con su pregunta y respuestas debajo.
 // Lista y abrir tema: /api/grupos/{id}/foro. Ver tema: GET /api/foro/{id}.
 // Responder: POST /api/foro/{id}/respuestas. No hay consultas periódicas: se carga al abrir y con
 // el botón «Actualizar», para no mantener despierta la base de datos.

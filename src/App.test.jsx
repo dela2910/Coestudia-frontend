@@ -91,6 +91,7 @@ const DEFAULT_ROUTES = {
   "GET /api/grupos/11/archivos": () => [200, []],
   "GET /api/grupos/11/foro": () => [200, []],
   "GET /api/grupos/11/asistente": () => [200, []],
+  "GET /api/asistente/limite": () => [200, { restantes: 40, maximo: 40 }],
 };
 
 // Mensaje del asistente tal como lo devuelve /api/grupos/{id}/asistente
@@ -1486,7 +1487,7 @@ describe("Espacio del grupo", () => {
         [
           apiAssistantMessage(1, "¿Qué es una serie?", { es_asistente: false, es_mio: true }),
           apiAssistantMessage(2, "Una suma infinita.", {
-            fuentes: [{ id: 9, nombre: "Series.pdf" }],
+            fuentes: [{ id: 9, nombre: "Series.pdf", ubicacion: "pág. 4" }],
             aviso: "El material del grupo es muy largo y no alcancé a leer: Libro.pdf.",
           }),
         ],
@@ -1508,8 +1509,9 @@ describe("Espacio del grupo", () => {
     await openRoom();
     fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
 
-    // El aviso va aparte de la respuesta
+    // El aviso va aparte de la respuesta, y la fuente dice la página que citó
     expect(await screen.findByText(/no alcancé a leer: Libro.pdf/)).toBeInTheDocument();
+    expect(screen.getByText("Series.pdf, pág. 4")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Compartir en el foro" }));
 
     expect(await screen.findByRole("button", { name: "Compartida en el foro" })).toBeDisabled();
@@ -1518,8 +1520,28 @@ describe("Espacio del grupo", () => {
     );
     expect(JSON.parse(sent.body)).toEqual({
       titulo: "Asistente: ¿Qué es una serie?",
-      contenido: "Una suma infinita.\n\nFuentes: Series.pdf\n\n(Respuesta del asistente de estudio)",
+      contenido: "Una suma infinita.\n\nFuentes: Series.pdf, pág. 4\n\n(Respuesta del asistente de estudio)",
     });
+  });
+
+  it("muestra cuántas preguntas le quedan hoy", async () => {
+    let remaining = 12;
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/asistente/limite": () => [200, { restantes: remaining, maximo: 40 }],
+      "POST /api/grupos/11/asistente": () => {
+        remaining = 0;
+        return [200, assistantStream(["Listo."], apiAssistantMessage(2, "Listo."))];
+      },
+    });
+    await openRoom();
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+
+    expect(await screen.findByText(/Te quedan 12 de 40 preguntas hoy/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume los archivos" }));
+
+    // Se actualiza después de cada pregunta
+    expect(await screen.findByText(/Llegaste al máximo de preguntas de hoy/)).toBeInTheDocument();
   });
 
   it("muestra el aviso del backend si no puede responder", async () => {

@@ -11,7 +11,7 @@ import {
 import Icon from "./Icon";
 import { Avatar, EmptyState } from "./ui";
 
-// Foro del grupo (B16): lista de temas (ej. «Guía 2 – Ejercicio 3»), cada uno con su pregunta y
+// Foro del grupo (B14): lista de temas (ej. «Guía 2 – Ejercicio 3»), cada uno con su pregunta y
 // las respuestas debajo. Se carga al abrir y con «Actualizar»; no consulta solo cada pocos
 // segundos, para no mantener despierta la base de datos del plan gratuito.
 

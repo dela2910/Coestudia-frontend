@@ -15,10 +15,17 @@ export const toMessage = (mensaje) => ({
   author: mensaje.autor,
   isMine: mensaje.es_mio,
   text: mensaje.contenido,
-  sources: mensaje.fuentes.map((f) => f.nombre),
+  // Con la página o diapositiva que citó, si se sabe: «Guía 2.pdf, pág. 4»
+  sources: mensaje.fuentes.map((f) => (f.ubicacion ? `${f.nombre}, ${f.ubicacion}` : f.nombre)),
   // Aviso aparte de la respuesta (por ejemplo, material que no alcanzó a leer)
   notice: mensaje.aviso ?? null,
 });
+
+// Preguntas al asistente que le quedan al usuario hoy, en todos sus grupos
+export const getDailyLimit = async () => {
+  const limite = await request("/api/asistente/limite");
+  return { remaining: limite.restantes, max: limite.maximo };
+};
 
 export const getConversation = async (groupId) =>
   (await request(`/api/grupos/${groupId}/asistente`)).map(toMessage);
