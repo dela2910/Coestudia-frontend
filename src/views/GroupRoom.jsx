@@ -161,7 +161,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
       .catch(() => {});
 
   useEffect(() => {
-    loadLimit();
+    void loadLimit();
   }, []);
 
   const refresh = async () => {
@@ -283,7 +283,7 @@ export default function GroupRoom({ group, user, onBack, onLeft, onManage }) {
     } finally {
       setThinking(false);
       setPartial("");
-      loadLimit();
+      void loadLimit();
     }
   };
 
