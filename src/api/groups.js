@@ -3,7 +3,8 @@ import { request } from "./client";
 // Grupos de estudio. Buscar y filtrar (B06): GET /api/grupos. Detalle (B07): GET /api/grupos/{id}.
 // Crear: POST /api/grupos. Mis grupos (B09): GET /api/grupos/mios. Solicitudes para unirse:
 // /api/grupos/{id}/solicitudes y /api/solicitudes/{id}. Mis solicitudes (B09):
-// GET /api/solicitudes/mias.
+// GET /api/solicitudes/mias. Administrar (B10, solo el creador): PUT y DELETE /api/grupos/{id} y
+// DELETE /api/grupos/{id}/integrantes/{usuario}. Abandonar (B11): POST /api/grupos/{id}/abandonar.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -16,16 +17,23 @@ export const toGroup = (grupo) => ({
   members: grupo.miembros,
   isOpen: grupo.abierto,
   validUntil: grupo.vigente_hasta,
-  schedule: grupo.horarios.map((h) => ({ day: h.dia_semana, isMorning: h.es_manana })),
+  // El backend manda "HH:MM"; slice por si llegan segundos
+  schedule: grupo.horarios.map((h) => ({
+    day: h.dia_semana,
+    start: h.hora_inicio.slice(0, 5),
+    end: h.hora_fin.slice(0, 5),
+  })),
 });
 
-// filters: { query, isOnline (null = cualquiera), days: [0-5], blocks: [isMorning] }
-export async function searchGroups({ query, isOnline, days, blocks }) {
+// filters: { query, isOnline (null = cualquiera), days: [0-5], from y to: "HH:MM" o "" }.
+// Con horas, calzan los grupos con algún horario que se cruce con ese rango.
+export async function searchGroups({ query, isOnline, days, from, to }) {
   const params = new URLSearchParams();
   if (query.trim()) params.set("q", query.trim());
   if (isOnline !== null) params.set("es_online", String(isOnline));
   days.forEach((day) => params.append("dia", String(day)));
-  blocks.forEach((isMorning) => params.append("es_manana", String(isMorning)));
+  if (from) params.set("desde", from);
+  if (to) params.set("hasta", to);
   const qs = params.toString();
   const grupos = await request(`/api/grupos${qs ? `?${qs}` : ""}`);
   return grupos.map(toGroup);
@@ -45,44 +53,58 @@ export const toGroupDetail = (grupo) => ({
   isMember: grupo.es_miembro,
   // El usuario ya pidió unirse y el creador aún no responde
   pendingRequest: grupo.solicitud_pendiente,
+  // La solicitud espera a que se libere un cupo (el grupo está lleno)
+  waiting: grupo.solicitud_en_espera,
   place: grupo.lugar,
   link: grupo.enlace,
 });
 
 export const getGroup = async (id) => toGroupDetail(await request(`/api/grupos/${id}`));
 
-// Crear grupo: POST /api/grupos. Se guarda cada combinación de los días y bloques elegidos.
-// subjectName solo se usa si la sigla aún no existe (el backend crea la asignatura).
-export const createGroup = async ({
-  code,
-  subjectName,
-  description,
-  isOnline,
-  place,
-  link,
-  days,
-  blocks,
-  capacity,
-  validUntil,
-}) =>
+// Datos del grupo que comparten crear y editar. schedule: [{ day, start, end }]
+const groupBody = ({ description, isOnline, place, link, schedule, capacity, validUntil }) => ({
+  descripcion: description.trim() || null,
+  es_online: isOnline,
+  lugar: isOnline ? null : place.trim(),
+  enlace: isOnline ? link.trim() : null,
+  cupo_maximo: capacity,
+  vigente_hasta: validUntil,
+  horarios: schedule.map((h) => ({ dia_semana: h.day, hora_inicio: h.start, hora_fin: h.end })),
+});
+
+// Crear grupo: POST /api/grupos. subjectName solo se usa si la sigla aún no existe (el backend
+// crea la asignatura).
+export const createGroup = async ({ code, subjectName, ...fields }) =>
   toGroupDetail(
     await request("/api/grupos", {
       method: "POST",
       body: {
         sigla: code,
         ...(subjectName ? { nombre_asignatura: subjectName } : {}),
-        descripcion: description.trim() || null,
-        es_online: isOnline,
-        lugar: isOnline ? null : place.trim(),
-        enlace: isOnline ? link.trim() : null,
-        cupo_maximo: capacity,
-        vigente_hasta: validUntil,
-        horarios: days.flatMap((day) =>
-          blocks.map((isMorning) => ({ dia_semana: day, es_manana: isMorning })),
-        ),
+        ...groupBody(fields),
       },
     }),
   );
+
+// Editar (solo el creador): lo mismo que al crear, sin la asignatura, más isOpen (false = cerrado,
+// no recibe solicitudes). Devuelve el detalle actualizado.
+export const updateGroup = async (id, { isOpen, ...fields }) =>
+  toGroupDetail(
+    await request(`/api/grupos/${id}`, {
+      method: "PUT",
+      body: { ...groupBody(fields), abierto: isOpen },
+    }),
+  );
+
+export const deleteGroup = (id) => request(`/api/grupos/${id}`, { method: "DELETE" });
+
+// Expulsar a un integrante (solo el creador). Devuelve el detalle actualizado.
+export const removeMember = async (groupId, userId) =>
+  toGroupDetail(
+    await request(`/api/grupos/${groupId}/integrantes/${userId}`, { method: "DELETE" }),
+  );
+
+export const leaveGroup = (id) => request(`/api/grupos/${id}/abandonar`, { method: "POST" });
 
 // Pedir unirse y cancelar la solicitud devuelven el detalle actualizado del grupo.
 export const requestToJoin = async (id, message = "") =>
@@ -105,6 +127,8 @@ export const toMyGroup = (grupo) => ({
   link: grupo.enlace,
   requests: grupo.solicitudes.map((s) => ({
     id: s.id,
+    // "pendiente" | "en_espera" (el grupo está lleno: se puede aceptar cuando se libere un cupo)
+    status: s.estado,
     name: s.usuario.nombre,
     career: s.usuario.carrera ?? "",
     message: s.mensaje ?? "",
@@ -123,7 +147,7 @@ export const acceptRequest = async (requestId) =>
 export const rejectRequest = async (requestId) =>
   toMyGroup(await request(`/api/solicitudes/${requestId}/rechazar`, { method: "POST" }));
 
-// Solicitud enviada por el usuario. status: "pendiente" | "aceptada" | "rechazada".
+// Solicitud enviada por el usuario. status: "pendiente" | "en_espera" | "aceptada" | "rechazada".
 // El grupo viene como en el buscador (sin lugar ni enlace).
 export const toMyRequest = (solicitud) => ({
   id: solicitud.id,

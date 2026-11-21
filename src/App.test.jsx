@@ -25,7 +25,7 @@ const apiGroup = (id, sigla, nombre, fields = {}) => ({
   miembros: 2,
   abierto: true,
   vigente_hasta: "2026-12-04",
-  horarios: [{ dia_semana: 1, es_manana: false }],
+  horarios: [{ dia_semana: 1, hora_inicio: "15:00", hora_fin: "17:00" }],
   ...fields,
 });
 const apiGroups = [
@@ -73,7 +73,6 @@ const searchRoute = (options, url) => {
 };
 
 const DEFAULT_ROUTES = {
-  "GET /api/hello": () => [200, { message: "Hola desde el backend de Coestudia" }],
   "POST /api/auth/login": () => [200, session],
   "POST /api/auth/registro": () => [201, { ...apiUser, email_verificado_en: null }],
   "POST /api/auth/verificar": () => [200, session],
@@ -87,7 +86,36 @@ const DEFAULT_ROUTES = {
   "GET /api/solicitudes/mias": () => [200, []],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
+  "GET /api/sugerencias/grupos": () => [200, []],
+  "GET /api/sugerencias/asignaturas": () => [200, []],
+  "GET /api/grupos/11/archivos": () => [200, []],
+  "GET /api/grupos/11/foro": () => [200, []],
+  "GET /api/grupos/11/asistente": () => [200, []],
 };
+
+// Mensaje del asistente tal como lo devuelve /api/grupos/{id}/asistente
+const apiAssistantMessage = (id, contenido, fields = {}) => ({
+  id,
+  es_asistente: true,
+  autor: null,
+  es_mio: false,
+  contenido,
+  creado_en: "2026-11-12T15:00:00Z",
+  fuentes: [],
+  ...fields,
+});
+
+// Archivo tal como lo devuelve GET /api/grupos/{id}/archivos
+const apiFile = (id, nombre, fields = {}) => ({
+  id,
+  nombre,
+  tipo_mime: "application/pdf",
+  tamano_bytes: 2048,
+  subido_por: "Ana Rojas",
+  creado_en: "2026-11-05T15:00:00Z",
+  puede_eliminar: false,
+  ...fields,
+});
 
 // Simula el backend: cada ruta "MÉTODO /ruta" responde [status, json]. Devuelve el mock de fetch.
 const mockApi = (routes = {}) => {
@@ -120,23 +148,19 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-describe("Conexión con el backend", () => {
-  it("muestra el mensaje del backend cuando la llamada funciona", async () => {
-    mockApi();
-    render(<App />);
+// Elige una hora "HH:MM" en un TimeSelect (listas de hora y minutos)
+function pickTime(scope, label, time) {
+  const [hour, minute] = time.split(":");
+  fireEvent.change(scope.getByLabelText(`${label}, hora`), { target: { value: hour } });
+  fireEvent.change(scope.getByLabelText(`${label}, minutos`), { target: { value: minute } });
+}
 
-    expect(screen.getByText("Conectando con el backend…")).toBeInTheDocument();
-    expect(await screen.findByText(/Hola desde el backend de Coestudia/)).toBeInTheDocument();
-    expect(screen.getByText("Backend conectado")).toBeInTheDocument();
-  });
-
-  it("muestra un error cuando el backend no responde", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
-    render(<App />);
-
-    expect(await screen.findByText("No se pudo conectar con el backend")).toBeInTheDocument();
-  });
-});
+// Completa una fila de horarios del formulario de grupo (por defecto, la primera)
+function fillSchedule(day, start, end, scope = screen) {
+  fireEvent.change(scope.getByLabelText("Día"), { target: { value: String(day) } });
+  pickTime(scope, "Inicio", start);
+  pickTime(scope, "Fin", end);
+}
 
 describe("App", () => {
   beforeEach(() => {
@@ -197,6 +221,7 @@ describe("App", () => {
     const request = (id, nombre) => ({
       id,
       usuario: { id, nombre, carrera: "Ingeniería Civil" },
+      estado: "pendiente",
       mensaje: null,
       creada_en: "2026-10-29T12:00:00Z",
     });
@@ -244,6 +269,7 @@ describe("App", () => {
         {
           id: 31,
           usuario: { id: 31, nombre: "Pedro Rojas", carrera: null },
+          estado: "pendiente",
           mensaje: null,
           creada_en: "2026-10-29T12:00:00Z",
         },
@@ -356,6 +382,119 @@ describe("App", () => {
     // Al recargar el detalle sigue la solicitud enviada antes
     fireEvent.click(await screen.findByRole("button", { name: "Cancelar solicitud" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("No tienes una solicitud pendiente");
+  });
+});
+
+describe("Sugerencias", () => {
+  // Asignatura tal como la devuelve GET /api/sugerencias/asignaturas
+  const apiSuggestedSubject = (id, sigla, nombre, grupos, motivo = null) => ({
+    asignatura: { id, sigla, nombre },
+    grupos_disponibles: grupos,
+    motivo,
+  });
+
+  it("muestra grupos sugeridos con sus motivos y abre el detalle", async () => {
+    mockApi({
+      "GET /api/sugerencias/grupos": () => [
+        200,
+        [{ ...apiGroups[1], motivos: ["Lo cursan 3 estudiantes de tu carrera", "Grupo nuevo"] }],
+      ],
+    });
+    await login();
+
+    const section = (await screen.findByRole("heading", { name: "Sugeridos para ti" })).closest(
+      "section",
+    );
+    const reasons = within(section).getByRole("list", { name: "Por qué te lo sugerimos" });
+    expect(within(reasons).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
+      "Lo cursan 3 estudiantes de tu carrera",
+      "Grupo nuevo",
+    ]);
+
+    fireEvent.click(within(section).getByRole("button", { name: /Física I/ }));
+    expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
+  });
+
+  it("sin sugerencias o si fallan, no muestra la sección", async () => {
+    mockApi({ "GET /api/sugerencias/grupos": () => [500, { detail: "Error" }] });
+    await login();
+
+    // Espera a que se resuelva la llamada de sugerencias
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "Sugeridos para ti" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Buscar asignatura")).toBeInTheDocument();
+  });
+
+  it("al enfocar el buscador propone asignaturas y al elegir una busca sus grupos", async () => {
+    const fetchMock = mockApi({
+      "GET /api/sugerencias/asignaturas": () => [
+        200,
+        [
+          apiSuggestedSubject(1, "MAT1620", "Cálculo II", 2, "Está en tus asignaturas"),
+          apiSuggestedSubject(2, "FIS1513", "Física I", 1),
+        ],
+      ],
+    });
+    await login();
+
+    const input = screen.getByRole("combobox", { name: "Buscar asignatura" });
+    fireEvent.focus(input);
+
+    expect(await screen.findByText("Búsquedas sugeridas")).toBeInTheDocument();
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent("MAT1620 · Cálculo II");
+    expect(options[0]).toHaveTextContent("Está en tus asignaturas");
+    expect(options[0]).toHaveTextContent("2 grupos");
+    expect(input).toHaveAttribute("aria-expanded", "true");
+
+    fireEvent.click(options[1]);
+
+    expect(await screen.findByText("Encontramos 1 grupo")).toBeInTheDocument();
+    const searches = fetchMock.mock.calls.filter(
+      ([url]) => new URL(url).pathname === "/api/grupos",
+    );
+    expect(new URL(searches.at(-1)[0]).searchParams.get("q")).toBe("FIS1513");
+  });
+
+  it("autocompleta lo escrito y se maneja con el teclado", async () => {
+    const fetchMock = mockApi({
+      "GET /api/sugerencias/asignaturas": (options, url) => {
+        const q = new URL(url).searchParams.get("q");
+        return q
+          ? [200, [apiSuggestedSubject(1, "MAT1620", "Cálculo II", 0)]]
+          : [200, [apiSuggestedSubject(2, "FIS1513", "Física I", 1)]];
+      },
+    });
+    await login();
+
+    const input = screen.getByRole("combobox", { name: "Buscar asignatura" });
+    fireEvent.focus(input);
+    fireEvent.change(input, { target: { value: "calc" } });
+
+    const option = await screen.findByRole("option", { name: /MAT1620/ });
+    expect(screen.getByText("Asignaturas")).toBeInTheDocument();
+    expect(option).toHaveTextContent("Sin grupos aún");
+    const asked = fetchMock.mock.calls
+      .map(([url]) => new URL(url))
+      .filter((url) => url.pathname === "/api/sugerencias/asignaturas");
+    expect(asked.at(-1).searchParams.get("q")).toBe("calc");
+
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(option).toHaveAttribute("aria-selected", "true");
+    expect(input).toHaveAttribute("aria-activedescendant", option.id);
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+
+    // Flecha abajo vuelve a abrir la lista; la segunda marca la opción y Enter la elige
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    await screen.findByRole("option", { name: /MAT1620/ });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(await screen.findByText("Encontramos 2 grupos")).toBeInTheDocument();
   });
 });
 
@@ -550,13 +689,7 @@ describe("Inicio de sesión y verificación", () => {
   });
 
   it("avisa si no hay conexión con el servidor", async () => {
-    mockApi();
-    const failing = vi.fn((url) =>
-      url.endsWith("/api/hello")
-        ? Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({}) })
-        : Promise.reject(new TypeError("Failed to fetch")),
-    );
-    vi.stubGlobal("fetch", failing);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     render(<App />);
     fillLogin();
 
@@ -769,8 +902,7 @@ describe("Crear grupo", () => {
     expect((await screen.findAllByText("Cálculo II")).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText(/Nombre del ramo/)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fillSchedule(0, "15:00", "17:00");
     expect(publish()).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
@@ -788,12 +920,45 @@ describe("Crear grupo", () => {
       enlace: null,
       cupo_maximo: 4,
       vigente_hasta: "2099-12-01",
-      horarios: [{ dia_semana: 0, es_manana: false }],
+      horarios: [{ dia_semana: 0, hora_inicio: "15:00", hora_fin: "17:00" }],
     });
 
     // "Ver mi grupo" abre el detalle, donde ya aparece como integrante
     fireEvent.click(screen.getByRole("button", { name: "Ver mi grupo" }));
     expect(await screen.findByText("Biblioteca")).toBeInTheDocument();
+  });
+
+  it("permite varios horarios en formato 24 horas y avisa si se cruzan", async () => {
+    await openCreate();
+    fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
+      target: { value: "MAT1620" },
+    });
+    await screen.findAllByText("Cálculo II");
+    fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
+    setValidUntil("2099-12-01");
+    fillSchedule(1, "10:15", "11:45");
+
+    // La fila nueva parte el día siguiente con las mismas horas
+    fireEvent.click(screen.getByRole("button", { name: /Agregar horario/ }));
+    const second = within(screen.getByRole("group", { name: "Horario 2" }));
+    expect(second.getByLabelText("Día")).toHaveValue("2");
+    expect(second.getByLabelText("Inicio, hora")).toHaveValue("10");
+    expect(second.getByLabelText("Inicio, minutos")).toHaveValue("15");
+
+    // Si ambos quedan el martes y se cruzan, no se puede publicar
+    fillSchedule(1, "11:00", "12:30", second);
+    expect(screen.getByRole("alert")).toHaveTextContent("Hay dos horarios del martes que se cruzan.");
+    expect(publish()).toBeDisabled();
+
+    fireEvent.change(second.getByLabelText("Día"), { target: { value: "3" } });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Mar 10:15–11:45 · Jue 11:00–12:30")).toBeInTheDocument();
+    fireEvent.click(publish());
+    await screen.findByText(/ya está visible/);
+    expect(sentGroup().horarios).toEqual([
+      { dia_semana: 1, hora_inicio: "10:15", hora_fin: "11:45" },
+      { dia_semana: 3, hora_inicio: "11:00", hora_fin: "12:30" },
+    ]);
   });
 
   it("muestra el error del backend y permite reintentar", async () => {
@@ -806,8 +971,7 @@ describe("Crear grupo", () => {
       target: { value: "MAT1620" },
     });
     await screen.findAllByText("Cálculo II");
-    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fillSchedule(0, "15:00", "17:00");
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
     setValidUntil("2099-12-01");
     fireEvent.click(publish());
@@ -827,8 +991,7 @@ describe("Crear grupo", () => {
       target: { value: "Programación Avanzada" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Online" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mar" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    fillSchedule(1, "09:00", "11:00");
     expect(publish()).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/Enlace de la reunión/), {
@@ -846,7 +1009,7 @@ describe("Crear grupo", () => {
       es_online: true,
       lugar: null,
       enlace: "https://meet.google.com/abc",
-      horarios: [{ dia_semana: 1, es_manana: true }],
+      horarios: [{ dia_semana: 1, hora_inicio: "09:00", hora_fin: "11:00" }],
     });
   });
 
@@ -855,8 +1018,7 @@ describe("Crear grupo", () => {
     fireEvent.change(screen.getByLabelText(/Sigla de la asignatura/), {
       target: { value: "MAT1620" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Lun" }));
-    fireEvent.click(screen.getByRole("button", { name: "Tarde" }));
+    fillSchedule(0, "15:00", "17:00");
     fireEvent.change(screen.getByLabelText(/Lugar/), { target: { value: "Biblioteca" } });
 
     setValidUntil("2020-01-01");
@@ -1032,26 +1194,484 @@ describe("Espacio del grupo", () => {
     await waitFor(() => expect(screen.queryByLabelText(/integrantes/)).not.toBeInTheDocument());
   });
 
+  it("muestra los archivos que ya tiene el grupo", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [
+        200,
+        [apiFile(1, "Guía integrales.pdf"), apiFile(2, "Mis apuntes.pdf", { puede_eliminar: true })],
+      ],
+    });
+    await openRoom();
+
+    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
+    expect(await within(files).findByText("Guía integrales.pdf")).toBeInTheDocument();
+    expect(within(files).getAllByText(/2 KB · Ana Rojas/)).toHaveLength(2);
+    // Solo se puede eliminar lo que el backend permite
+    expect(within(files).queryByLabelText("Eliminar Guía integrales.pdf")).not.toBeInTheDocument();
+    expect(within(files).getByLabelText("Eliminar Mis apuntes.pdf")).toBeInTheDocument();
+    expect(screen.getByText("Usando 2 archivos")).toBeInTheDocument();
+  });
+
+  it("avisa si no se pudieron cargar los archivos", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [403, { detail: "Solo los integrantes del grupo pueden ver sus archivos." }],
+    });
+    await openRoom();
+
+    expect(
+      await screen.findByText("Solo los integrantes del grupo pueden ver sus archivos."),
+    ).toBeInTheDocument();
+  });
+
+  it("elimina un archivo en el backend", async () => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [200, [apiFile(5, "Borrador.pdf", { puede_eliminar: true })]],
+      "DELETE /api/archivos/5": () => [204, null],
+    });
+    await openRoom();
+
+    fireEvent.click(await screen.findByLabelText("Eliminar Borrador.pdf"));
+
+    expect(await screen.findByText("Sin archivos")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/archivos/5"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("descarga un archivo con la sesión", async () => {
+    const blob = new Blob(["contenido"]);
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [200, [apiFile(5, "Guía.pdf")]],
+    });
+    // La descarga devuelve el archivo, no JSON
+    const apiFetch = globalThis.fetch;
+    const fetchMock = vi.fn((url, options = {}) =>
+      url.endsWith("/api/archivos/5/descarga")
+        ? Promise.resolve({ ok: true, status: 200, blob: () => Promise.resolve(blob) })
+        : apiFetch(url, options),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    // jsdom no implementa los enlaces temporales a archivos
+    const createObjectURL = vi.fn(() => "blob:guia");
+    URL.createObjectURL = createObjectURL;
+    const revokeObjectURL = vi.fn();
+    URL.revokeObjectURL = revokeObjectURL;
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    // Se restaura aunque falle una aserción, para no afectar a las pruebas siguientes
+    try {
+      await openRoom();
+
+      fireEvent.click(await screen.findByLabelText("Descargar Guía.pdf"));
+
+      await waitFor(() => expect(click).toHaveBeenCalled());
+      expect(createObjectURL).toHaveBeenCalledWith(blob);
+      const [, options] = fetchMock.mock.calls.find(([url]) => url.endsWith("/descarga"));
+      expect(options.headers.Authorization).toBe("Bearer jwt-de-prueba");
+      // El enlace temporal se libera 1 s después del clic
+      await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledWith("blob:guia"), {
+        timeout: 2000,
+      });
+    } finally {
+      // Si el enlace se creó pero aún no se libera, se espera antes de quitar el mock: si no, el
+      // temporizador fallaría después, en otra prueba
+      if (createObjectURL.mock.calls.length > 0) {
+        await waitFor(() => expect(revokeObjectURL).toHaveBeenCalled(), { timeout: 2000 }).catch(
+          () => {},
+        );
+      }
+      click.mockRestore();
+      delete URL.createObjectURL;
+      delete URL.revokeObjectURL;
+    }
+  });
+
+  it("conserva lo subido aunque la lista inicial llegue después o falle", async () => {
+    let failList;
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      // La lista inicial no responde hasta que la prueba lo decide
+      "GET /api/grupos/11/archivos": () => [503, { detail: "No pudimos cargar los archivos." }],
+      "POST /api/grupos/11/archivos": () => [201, apiFile(9, "Nuevo.pdf", { puede_eliminar: true })],
+    });
+    const apiFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url, options = {}) =>
+        url.endsWith("/api/grupos/11/archivos") && options.method === "GET"
+          ? new Promise((resolve) => {
+              failList = () => resolve(apiFetch(url, options));
+            })
+          : apiFetch(url, options),
+      ),
+    );
+    await openRoom();
+
+    const file = new File(["x"], "Nuevo.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
+    const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
+    expect(await within(files).findByText("Nuevo.pdf")).toBeInTheDocument();
+
+    failList();
+
+    expect(await screen.findByText("No pudimos cargar los archivos.")).toBeInTheDocument();
+    expect(within(files).getByText("Nuevo.pdf")).toBeInTheDocument();
+  });
+
+  it("no manda dos veces la eliminación de un archivo", async () => {
+    let finishDelete;
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/archivos": () => [200, [apiFile(5, "Borrador.pdf", { puede_eliminar: true })]],
+    });
+    const apiFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url, options = {}) => {
+        if (options.method !== "DELETE") return apiFetch(url, options);
+        fetchMock(url, options);
+        return new Promise((resolve) => {
+          finishDelete = () => resolve({ ok: true, status: 204, json: () => Promise.resolve(null) });
+        });
+      }),
+    );
+    await openRoom();
+
+    const remove = await screen.findByLabelText("Eliminar Borrador.pdf");
+    fireEvent.click(remove);
+    fireEvent.click(remove);
+
+    expect(remove).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([, o]) => o?.method === "DELETE")).toHaveLength(1);
+    finishDelete();
+    expect(await screen.findByText("Sin archivos")).toBeInTheDocument();
+  });
+
+  it("no sube archivos de tipos no permitidos", async () => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+    });
+    await openRoom();
+
+    const file = new File(["<html>"], "pagina.html", { type: "text/html" });
+    fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
+
+    expect(await screen.findByText(/"pagina.html" no se puede subir/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/archivos"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("responde preguntas usando los archivos que se suben", async () => {
+    // Conversación guardada en el backend simulado
+    const saved = [];
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "POST /api/grupos/11/archivos": () => [
+        201,
+        apiFile(9, "Apuntes clase 5.pdf", { subido_por: "Benjamín Soto", puede_eliminar: true }),
+      ],
+      "POST /api/grupos/11/asistente": () => {
+        saved.push(
+          apiAssistantMessage(1, "Resume los archivos", {
+            es_asistente: false,
+            autor: "Benjamín Soto",
+            es_mio: true,
+          }),
+          apiAssistantMessage(2, "Resumen: la clase 5 trata de integrales por partes.", {
+            fuentes: [{ id: 9, nombre: "Apuntes clase 5.pdf" }],
+          }),
+        );
+        return [201, saved.at(-1)];
+      },
+      "GET /api/grupos/11/asistente": () => [200, saved],
+    });
     await openRoom();
 
     const file = new File(["apuntes"], "Apuntes clase 5.pdf", { type: "application/pdf" });
     fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
 
     const files = screen.getByRole("complementary", { name: "Archivos del grupo" });
-    expect(within(files).getByText("Apuntes clase 5.pdf")).toBeInTheDocument();
-    expect(screen.getByText(/leí "Apuntes clase 5.pdf"/)).toBeInTheDocument();
+    expect(await within(files).findByText("Apuntes clase 5.pdf")).toBeInTheDocument();
+    expect(screen.getByText(/subiste "Apuntes clase 5.pdf"/)).toBeInTheDocument();
     expect(screen.getByText("Usando 1 archivo")).toBeInTheDocument();
+    // Se envía como FormData con el campo "archivo"
+    const [, upload] = fetchMock.mock.calls.find(([, o]) => o?.method === "POST" && o.body instanceof FormData);
+    expect(upload.body.get("archivo").name).toBe("Apuntes clase 5.pdf");
 
+    // El espacio abre en el foro del grupo: el asistente está en la otra pestaña
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
     fireEvent.change(screen.getByLabelText("Pregunta al asistente"), {
       target: { value: "Resume los archivos" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Enviar" }));
     expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
-    expect(
-      await screen.findByText(/Aquí va un resumen de el archivo/, {}, { timeout: 2000 }),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/la clase 5 trata de integrales/)).toBeInTheDocument();
     expect(screen.getByText("Fuentes:")).toBeInTheDocument();
+    // Después de responder se recarga la conversación: la pregunta aparece una sola vez
+    expect(screen.getAllByText("Resume los archivos", { selector: "p" })).toHaveLength(1);
+    // La pregunta se manda al backend, que responde con el material del grupo
+    const [, sent] = fetchMock.mock.calls.find(
+      ([url, o]) => url.endsWith("/asistente") && o?.method === "POST",
+    );
+    expect(JSON.parse(sent.body)).toEqual({ contenido: "Resume los archivos" });
+  });
+
+  it("muestra la conversación del grupo y el creador puede borrarla", async () => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [
+        200,
+        { creados: [apiMyGroup(apiGroups[0], { es_creador: true })], participo: [] },
+      ],
+      "GET /api/grupos/11/asistente": () => [
+        200,
+        [
+          apiAssistantMessage(1, "¿Qué es una serie?", {
+            es_asistente: false,
+            autor: "Luis Castro",
+          }),
+          apiAssistantMessage(2, "Según los apuntes, es una suma infinita.", {
+            fuentes: [{ id: 9, nombre: "Series.pdf" }],
+          }),
+        ],
+      ],
+      "DELETE /api/grupos/11/asistente": () => [204, null],
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+
+    expect(await screen.findByText("Según los apuntes, es una suma infinita.")).toBeInTheDocument();
+    expect(screen.getByText("¿Qué es una serie?")).toBeInTheDocument();
+    // La pregunta es de otro integrante: se muestra con su nombre
+    expect(screen.getByText("Luis Castro")).toBeInTheDocument();
+    expect(screen.getByText("Series.pdf")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Borrar conversación" }));
+
+    await waitFor(() => expect(screen.queryByText("¿Qué es una serie?")).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/grupos/11/asistente"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("solo el creador ve el botón para borrar la conversación", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/asistente": () => [
+        200,
+        [apiAssistantMessage(1, "Arma un control", { es_asistente: false, autor: "Ana Rojas" })],
+      ],
+    });
+    await openRoom();
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+
+    expect(await screen.findByText("Arma un control")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Actualizar" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Borrar conversación" })).not.toBeInTheDocument();
+  });
+
+  it("muestra el aviso del backend si no puede responder", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "POST /api/grupos/11/asistente": () => [
+        429,
+        { detail: "Llegaste al máximo de 40 preguntas al asistente en 24 horas." },
+      ],
+    });
+    await openRoom();
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+    fireEvent.click(screen.getByRole("button", { name: "Hazme preguntas de práctica" }));
+
+    expect(await screen.findByText(/máximo de 40 preguntas/)).toBeInTheDocument();
+    // El backend no guardó la pregunta: sale de la conversación y vuelve al cuadro de texto
+    expect(screen.queryByText("Hazme preguntas de práctica", { selector: "p" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Pregunta al asistente")).toHaveValue("Hazme preguntas de práctica");
+  });
+
+  it("avisa si no pudo cargar la conversación del grupo", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/grupos/11/asistente": () => [500, { detail: "Error interno" }],
+    });
+    await openRoom();
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+
+    expect(await screen.findByText(/No pudimos cargar la conversación del grupo/)).toBeInTheDocument();
+  });
+});
+
+describe("Foro del grupo", () => {
+  const openRoom = async () => {
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+  };
+
+  const ISO = "2026-11-08T20:00:00Z";
+  // Temas tal como los devuelve el backend
+  const apiSummary = (id, titulo, fields = {}) => ({
+    id,
+    titulo,
+    autor: "Ana Rojas",
+    creado_en: ISO,
+    ultima_actividad_en: ISO,
+    total_respuestas: 0,
+    ...fields,
+  });
+  const apiTopic = (id, titulo, fields = {}) => ({
+    id,
+    titulo,
+    autor: "Ana Rojas",
+    es_mio: false,
+    contenido: "¿Cómo parto la integral?",
+    creado_en: ISO,
+    respuestas: [],
+    ...fields,
+  });
+  const apiReply = (id, contenido, fields = {}) => ({
+    id,
+    autor: "Ana Rojas",
+    es_mia: false,
+    contenido,
+    creado_en: ISO,
+    ...fields,
+  });
+
+  const withRoutes = (routes = {}) =>
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      ...routes,
+    });
+
+  it("abre en el foro y muestra los temas del grupo", async () => {
+    withRoutes({
+      "GET /api/grupos/11/foro": () => [
+        200,
+        [apiSummary(2, "Guía 2 – Ejercicio 3", { total_respuestas: 2 }), apiSummary(1, "Avisos")],
+      ],
+    });
+    await openRoom();
+
+    expect(screen.getByRole("tab", { name: "Foro" })).toHaveAttribute("aria-selected", "true");
+    const list = await screen.findByRole("list", { name: "Temas del foro" });
+    expect(within(list).getByText("Guía 2 – Ejercicio 3")).toBeInTheDocument();
+    expect(within(list).getByText(/Ana Rojas · 2 respuestas/)).toBeInTheDocument();
+    expect(within(list).getByText(/Ana Rojas · 0 respuestas/)).toBeInTheDocument();
+  });
+
+  it("muestra un aviso cuando todavía no hay temas", async () => {
+    withRoutes();
+    await openRoom();
+
+    expect(await screen.findByText("Todavía no hay temas")).toBeInTheDocument();
+  });
+
+  it("abre un tema nuevo y queda dentro de él", async () => {
+    const fetchMock = withRoutes({
+      "POST /api/grupos/11/foro": (options) => {
+        const body = JSON.parse(options.body);
+        return [201, apiTopic(5, body.titulo, { contenido: body.contenido, autor: "Benjamín Soto", es_mio: true })];
+      },
+    });
+    await openRoom();
+    await screen.findByText("Todavía no hay temas");
+
+    fireEvent.click(screen.getByRole("button", { name: "Nuevo tema" }));
+    const publish = screen.getByRole("button", { name: "Publicar tema" });
+    expect(publish).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: " Guía 2 – Ejercicio 3 " } });
+    fireEvent.change(screen.getByLabelText("Pregunta o enunciado"), { target: { value: "¿Cómo parto?" } });
+    fireEvent.click(publish);
+
+    expect(await screen.findByRole("heading", { name: "Guía 2 – Ejercicio 3" })).toBeInTheDocument();
+    expect(screen.getByText("¿Cómo parto?")).toBeInTheDocument();
+    expect(screen.getByText("0 respuestas")).toBeInTheDocument();
+    const [, sent] = fetchMock.mock.calls.find(([url, o]) => o?.method === "POST" && url.endsWith("/foro"));
+    expect(JSON.parse(sent.body)).toEqual({ titulo: "Guía 2 – Ejercicio 3", contenido: "¿Cómo parto?" });
+
+    // Al volver, el tema aparece en la lista
+    fireEvent.click(screen.getByRole("button", { name: "Temas" }));
+    const list = screen.getByRole("list", { name: "Temas del foro" });
+    expect(within(list).getByText("Guía 2 – Ejercicio 3")).toBeInTheDocument();
+  });
+
+  it("muestra las respuestas de un tema y permite responder", async () => {
+    const fetchMock = withRoutes({
+      "GET /api/grupos/11/foro": () => [200, [apiSummary(3, "Guía 2 – Ejercicio 3", { total_respuestas: 1 })]],
+      "GET /api/foro/3": () => [
+        200,
+        apiTopic(3, "Guía 2 – Ejercicio 3", { respuestas: [apiReply(1, "Usa integración por partes")] }),
+      ],
+      "POST /api/foro/3/respuestas": (options) => [
+        201,
+        apiReply(2, JSON.parse(options.body).contenido, { autor: "Benjamín Soto", es_mia: true }),
+      ],
+    });
+    await openRoom();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Guía 2 – Ejercicio 3/ }));
+    const replies = await screen.findByRole("list", { name: "Respuestas" });
+    expect(within(replies).getByText("Usa integración por partes")).toBeInTheDocument();
+    expect(screen.getByText("1 respuesta")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Tu respuesta"), { target: { value: "¡Gracias, me resultó!" } });
+    fireEvent.click(screen.getByRole("button", { name: "Responder" }));
+
+    expect(await within(replies).findByText("¡Gracias, me resultó!")).toBeInTheDocument();
+    // Las respuestas propias aparecen como «Tú»
+    expect(within(replies).getByText("Tú")).toBeInTheDocument();
+    expect(screen.getByLabelText("Tu respuesta")).toHaveValue("");
+    const [, sent] = fetchMock.mock.calls.find(([url, o]) => o?.method === "POST" && url.endsWith("/respuestas"));
+    expect(JSON.parse(sent.body)).toEqual({ contenido: "¡Gracias, me resultó!" });
+
+    // En la lista, el tema suma la respuesta
+    fireEvent.click(screen.getByRole("button", { name: "Temas" }));
+    expect(screen.getByText(/2 respuestas/)).toBeInTheDocument();
+  });
+
+  it("solo consulta al backend al abrir y con «Actualizar»", async () => {
+    let calls = 0;
+    withRoutes({
+      "GET /api/grupos/11/foro": () => {
+        calls += 1;
+        return [200, calls === 1 ? [] : [apiSummary(4, "Tema nuevo de Ana")]];
+      },
+    });
+    await openRoom();
+    await screen.findByText("Todavía no hay temas");
+    expect(calls).toBe(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Actualizar" }));
+
+    expect(await screen.findByText("Tema nuevo de Ana")).toBeInTheDocument();
+    expect(calls).toBe(2);
+  });
+
+  it("muestra el error si no se puede responder y conserva lo escrito", async () => {
+    withRoutes({
+      "GET /api/grupos/11/foro": () => [200, [apiSummary(3, "Ejercicio 3")]],
+      "GET /api/foro/3": () => [200, apiTopic(3, "Ejercicio 3")],
+      "POST /api/foro/3/respuestas": () => [404, { detail: "Este tema no existe." }],
+    });
+    await openRoom();
+    fireEvent.click(await screen.findByRole("button", { name: /Ejercicio 3/ }));
+
+    const input = await screen.findByLabelText("Tu respuesta");
+    fireEvent.change(input, { target: { value: "Hola" } });
+    fireEvent.click(screen.getByRole("button", { name: "Responder" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Este tema no existe.");
+    expect(input).toHaveValue("Hola");
   });
 });
 
@@ -1124,7 +1744,8 @@ describe("Buscador", () => {
     fireEvent.click(screen.getByRole("button", { name: "Online" }));
     fireEvent.click(screen.getByRole("button", { name: "Lun" }));
     fireEvent.click(screen.getByRole("button", { name: "Mié" }));
-    fireEvent.click(screen.getByRole("button", { name: "Mañana" }));
+    pickTime(screen, "Desde", "14:30");
+    pickTime(screen, "Hasta", "18:00");
     searchFor("  calculo ");
     await screen.findByText(/Encontramos/);
 
@@ -1132,7 +1753,22 @@ describe("Buscador", () => {
     expect(params.get("q")).toBe("calculo");
     expect(params.get("es_online")).toBe("true");
     expect(params.getAll("dia")).toEqual(["0", "2"]);
-    expect(params.getAll("es_manana")).toEqual(["true"]);
+    expect(params.get("desde")).toBe("14:30");
+    expect(params.get("hasta")).toBe("18:00");
+    expect(screen.getByText("14:30–18:00")).toBeInTheDocument();
+  });
+
+  it("no busca si el rango de horas está al revés", async () => {
+    const fetchMock = mockApi();
+    await login();
+    const calls = fetchMock.mock.calls.length;
+
+    pickTime(screen, "Desde", "18:00");
+    pickTime(screen, "Hasta", "10:00");
+    searchFor("calculo");
+
+    expect(screen.getByRole("alert")).toHaveTextContent("«Hasta» debe ser después de «Desde»");
+    expect(fetchMock.mock.calls.slice(calls).some(([url]) => String(url).includes("/api/grupos?"))).toBe(false);
   });
 
   it("sin filtros no manda parámetros", async () => {
@@ -1192,5 +1828,355 @@ describe("Buscador", () => {
     fail = false;
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
     expect(await screen.findByText("Encontramos 3 grupos")).toBeInTheDocument();
+  });
+});
+
+describe("Lista de espera", () => {
+  it("permite unirse a la lista de espera de un grupo completo", async () => {
+    const full = apiGroup(11, "MAT1620", "Cálculo II", { miembros: 4 });
+    mockApi({
+      "GET /api/grupos": () => [200, [full]],
+      "GET /api/grupos/11": () => [200, apiDetail(full)],
+      "POST /api/grupos/11/solicitudes": () => [
+        201,
+        apiDetail(full, { solicitud_pendiente: true, solicitud_en_espera: true }),
+      ],
+    });
+    await login();
+    fireEvent.change(screen.getByLabelText("Buscar asignatura"), { target: { value: "calculo" } });
+    fireEvent.click(
+      within(screen.getByLabelText("Buscar asignatura").closest("form")).getByRole("button", {
+        name: "Buscar",
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II/ }));
+
+    const join = await screen.findByRole("button", { name: "Unirme a la lista de espera" });
+    await waitFor(() => expect(join).toBeEnabled());
+    fireEvent.click(join);
+
+    expect(await screen.findByText(/Estás en la lista de espera/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancelar solicitud" })).toBeInTheDocument();
+  });
+
+  it("muestra las solicitudes en espera sin permitir aceptarlas", async () => {
+    const mine = apiMyGroup(apiGroups[0], {
+      es_creador: true,
+      miembros: 4,
+      solicitudes: [
+        {
+          id: 41,
+          usuario: { id: 41, nombre: "Pedro Rojas", carrera: null },
+          estado: "en_espera",
+          mensaje: null,
+          creada_en: "2026-10-29T12:00:00Z",
+        },
+      ],
+    });
+    mockApi({ "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }] });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+
+    expect(await screen.findByText("1 en espera")).toBeInTheDocument();
+    expect(screen.getByText("En espera de un cupo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aceptar a Pedro Rojas" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Rechazar a Pedro Rojas" })).toBeEnabled();
+  });
+
+  it("muestra el estado en espera en Mis solicitudes", async () => {
+    mockApi({
+      "GET /api/solicitudes/mias": () => [
+        200,
+        [
+          {
+            id: 5,
+            estado: "en_espera",
+            mensaje: null,
+            creada_en: "2026-10-29T12:00:00Z",
+            respondida_en: null,
+            grupo: apiGroups[0],
+          },
+        ],
+      ],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
+
+    expect(await screen.findByText("En espera")).toBeInTheDocument();
+    expect(screen.getByText(/si se libera un cupo/)).toBeInTheDocument();
+  });
+});
+
+describe("Administrar grupo", () => {
+  // Detalle visto por el creador (id 1 = Benjamín, el usuario de la sesión)
+  const ownDetail = (fields = {}) =>
+    apiDetail(apiGroups[0], {
+      creador: "Benjamín Soto",
+      integrantes: [
+        { id: 1, nombre: "Benjamín Soto", carrera: "Ingeniería Civil Informática", es_creador: true },
+        { id: 8, nombre: "Luis Castro", carrera: "Ingeniería Comercial", es_creador: false },
+      ],
+      es_miembro: true,
+      solicitud_en_espera: false,
+      lugar: "Biblioteca central, sala 2",
+      ...fields,
+    });
+  const mine = apiMyGroup(apiGroups[0], { es_creador: true });
+
+  const openManage = async (routes = {}) => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }],
+      "GET /api/grupos/11": () => [200, ownDetail()],
+      ...routes,
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Administrar Cálculo II" }));
+    await screen.findByText("Datos del grupo");
+    return fetchMock;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("edita los datos del grupo", async () => {
+    const fetchMock = await openManage({
+      "PUT /api/grupos/11": (options) => {
+        const body = JSON.parse(options.body);
+        return [200, ownDetail({ cupo_maximo: body.cupo_maximo, lugar: body.lugar })];
+      },
+    });
+
+    fireEvent.change(screen.getByDisplayValue("Biblioteca central, sala 2"), {
+      target: { value: "Sala de estudio 3" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Aumentar cupo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    const [, put] = fetchMock.mock.calls.find(([, o]) => o?.method === "PUT");
+    expect(JSON.parse(put.body)).toMatchObject({
+      lugar: "Sala de estudio 3",
+      cupo_maximo: 5,
+      abierto: true,
+      horarios: [{ dia_semana: 1, hora_inicio: "15:00", hora_fin: "17:00" }],
+    });
+    expect(screen.getByText("Integrantes (2/5)")).toBeInTheDocument();
+  });
+
+  it("no deja cerrar el grupo mientras se guardan cambios", async () => {
+    let finishSave;
+    await openManage();
+    const apiFetch = globalThis.fetch;
+    const fetchMock = vi.fn((url, options = {}) =>
+      options.method === "PUT"
+        ? new Promise((resolve) => {
+            finishSave = () =>
+              resolve({ ok: true, status: 200, json: () => Promise.resolve(ownDetail()) });
+          })
+        : apiFetch(url, options),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByRole("button", { name: "Guardando…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cerrar grupo" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Expulsar a Luis Castro" })).toBeDisabled();
+    finishSave();
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cerrar grupo" })).toBeEnabled();
+    expect(fetchMock.mock.calls.filter(([, o]) => o?.method === "PUT")).toHaveLength(1);
+  });
+
+  it("muestra el error si no se pudo guardar", async () => {
+    await openManage({
+      "PUT /api/grupos/11": () => [422, { detail: "El cupo no puede ser menor que los 2 integrantes actuales." }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText(/no puede ser menor/)).toBeInTheDocument();
+    expect(screen.queryByText("Cambios guardados.")).not.toBeInTheDocument();
+  });
+
+  it("no deja bajar el cupo de los integrantes actuales", async () => {
+    await openManage({
+      "GET /api/grupos/11": () => [200, ownDetail({ cupo_maximo: 2 })],
+    });
+    expect(screen.getByRole("button", { name: "Disminuir cupo" })).toBeDisabled();
+  });
+
+  // Lunes mañana y miércoles tarde: no son todas las combinaciones de esos días y bloques
+  const mixedSchedule = [
+    { dia_semana: 0, hora_inicio: "09:00", hora_fin: "11:00" },
+    { dia_semana: 2, hora_inicio: "15:00", hora_fin: "17:00" },
+  ];
+  const sentSchedule = (fetchMock) =>
+    JSON.parse(fetchMock.mock.calls.find(([, o]) => o?.method === "PUT")[1].body).horarios;
+
+  it("cerrar el grupo no cambia sus horarios", async () => {
+    const fetchMock = await openManage({
+      "GET /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule })],
+      "PUT /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule, abierto: false })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar grupo" }));
+
+    expect(await screen.findByText("Grupo cerrado")).toBeInTheDocument();
+    expect(sentSchedule(fetchMock)).toEqual(mixedSchedule);
+  });
+
+  it("guardar sin tocar días ni bloques conserva los horarios exactos", async () => {
+    const fetchMock = await openManage({
+      "GET /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule })],
+      "PUT /api/grupos/11": () => [200, ownDetail({ horarios: mixedSchedule })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Aumentar cupo" }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cambios" }));
+
+    expect(await screen.findByText("Cambios guardados.")).toBeInTheDocument();
+    expect(sentSchedule(fetchMock)).toEqual(mixedSchedule);
+  });
+
+  it("expulsar a alguien no borra los cambios sin guardar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openManage({
+      "DELETE /api/grupos/11/integrantes/8": () => [
+        200,
+        ownDetail({ miembros: 1, integrantes: [ownDetail().integrantes[0]] }),
+      ],
+    });
+    fireEvent.change(screen.getByDisplayValue("Biblioteca central, sala 2"), {
+      target: { value: "Sala de estudio 3" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    await waitFor(() => expect(screen.queryByText("Luis Castro")).not.toBeInTheDocument());
+    expect(screen.getByDisplayValue("Sala de estudio 3")).toBeInTheDocument();
+  });
+
+  it("cierra y reabre el grupo", async () => {
+    let open = true;
+    await openManage({
+      "PUT /api/grupos/11": (options) => {
+        open = JSON.parse(options.body).abierto;
+        return [200, ownDetail({ abierto: open })];
+      },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cerrar grupo" }));
+    expect(await screen.findByText("Grupo cerrado")).toBeInTheDocument();
+    expect(open).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Reabrir grupo" }));
+    expect(await screen.findByText("Recibe solicitudes")).toBeInTheDocument();
+  });
+
+  it("expulsa a un integrante después de confirmar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = await openManage({
+      "DELETE /api/grupos/11/integrantes/8": () => [
+        200,
+        ownDetail({ miembros: 1, integrantes: [ownDetail().integrantes[0]] }),
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    await waitFor(() => expect(screen.queryByText("Luis Castro")).not.toBeInTheDocument());
+    expect(window.confirm).toHaveBeenCalledWith("¿Expulsar a Luis Castro del grupo?");
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/grupos/11/integrantes/8"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("no expulsa si se cancela la confirmación", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const fetchMock = await openManage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    expect(screen.getByText("Luis Castro")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("elimina el grupo y vuelve a Mis grupos", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openManage({ "DELETE /api/grupos/11": () => [204, null] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Eliminar grupo" }));
+
+    expect(await screen.findByRole("heading", { name: "Mis grupos" })).toBeInTheDocument();
+  });
+
+  it("muestra el error si falla una acción", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openManage({
+      "DELETE /api/grupos/11/integrantes/8": () => [404, { detail: "Esa persona no es integrante del grupo." }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Expulsar a Luis Castro" }));
+
+    expect(await screen.findByText("Esa persona no es integrante del grupo.")).toBeInTheDocument();
+  });
+
+  it("se abre también desde el espacio del grupo", async () => {
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }],
+      "GET /api/grupos/11": () => [200, ownDetail()],
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Administrar" }));
+
+    expect(await screen.findByText("Datos del grupo")).toBeInTheDocument();
+  });
+});
+
+describe("Abandonar grupo", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const openRoom = async (routes = {}) => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      ...routes,
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+    return fetchMock;
+  };
+
+  it("abandona el grupo después de confirmar y vuelve a Mis grupos", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const fetchMock = await openRoom({ "POST /api/grupos/11/abandonar": () => [204, null] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Abandonar grupo" }));
+
+    expect(await screen.findByRole("heading", { name: "Mis grupos" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/grupos/11/abandonar"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("muestra el error si no se pudo abandonar", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openRoom({
+      "POST /api/grupos/11/abandonar": () => [409, { detail: "Eres el creador del grupo: para dejarlo, elimínalo." }],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Abandonar grupo" }));
+
+    expect(await screen.findByText(/para dejarlo, elimínalo/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abandonar grupo" })).toBeEnabled();
   });
 });

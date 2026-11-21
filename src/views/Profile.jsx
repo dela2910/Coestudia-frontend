@@ -16,12 +16,28 @@ const byCode = (a, b) => a.code.localeCompare(b.code);
 // Estado de «mis solicitudes»: etiqueta, color y qué significa para quien la envió
 const REQUEST_STATUS = {
   pendiente: { label: "Pendiente", badge: "badge-soft", note: "Esperando respuesta del creador." },
+  en_espera: {
+    label: "En espera",
+    badge: "badge-soft",
+    note: "El grupo está completo: si se libera un cupo, el creador podrá aceptarte.",
+  },
   aceptada: { label: "Aceptada", badge: "badge-open", note: "Ya eres integrante: entra al grupo." },
   rechazada: {
     label: "Rechazada",
     badge: "badge-closed",
     note: "El creador no aceptó tu solicitud.",
   },
+};
+
+// Resumen de las solicitudes de un grupo propio, ej. "1 solicitud pendiente · 2 en espera"
+const requestsSummary = (requests) => {
+  if (requests.length === 0) return "Sin solicitudes pendientes";
+  const pending = requests.filter((r) => r.status === "pendiente").length;
+  const waiting = requests.length - pending;
+  const parts = [];
+  if (pending) parts.push(`${pending} ${pending === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`);
+  if (waiting) parts.push(`${waiting} en espera`);
+  return parts.join(" · ");
 };
 
 // Fecha y hora con zona del backend, mostrada en la hora local, ej. "29 oct"
@@ -170,8 +186,16 @@ function ProfileForm({ user, onSaved, onCancel }) {
 }
 
 // onOpen: abre el espacio de un grupo propio; onOpenDetail: el detalle de un grupo al que
-// enviaste una solicitud
-export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdateUser, onLogout }) {
+// enviaste una solicitud; onManage: administrar un grupo creado por el usuario
+export default function Profile({
+  user,
+  onOpen,
+  onOpenDetail,
+  onManage,
+  onCreate,
+  onUpdateUser,
+  onLogout,
+}) {
   const [tab, setTab] = useState("created"); // "created" | "participating" | "requests"
   const [editing, setEditing] = useState(false);
   // Asignaturas que ya existen en la universidad; crece cuando el usuario agrega una sigla nueva.
@@ -202,7 +226,12 @@ export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdate
   }, []);
 
   const subjects = user.subjects;
-  const pendingCount = myGroups?.created.reduce((total, g) => total + g.requests.length, 0) ?? 0;
+  // Solo las que se pueden responder ya; las en espera no cuentan hasta que se libere un cupo
+  const pendingCount =
+    myGroups?.created.reduce(
+      (total, g) => total + g.requests.filter((r) => r.status === "pendiente").length,
+      0,
+    ) ?? 0;
 
   const match = newCode.trim() ? findSubject(catalog, newCode) : null;
   const needsName = Boolean(newCode.trim()) && !match;
@@ -414,9 +443,15 @@ export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdate
                   <div className="requests">
                     <div className="requests-head">
                       <Icon name="bell" size={18} />
-                      {group.requests.length > 0
-                        ? `${group.requests.length} ${group.requests.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`
-                        : "Sin solicitudes pendientes"}
+                      {requestsSummary(group.requests)}
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost requests-manage"
+                        aria-label={`Administrar ${group.subject}`}
+                        onClick={() => onManage(group)}
+                      >
+                        Administrar
+                      </button>
                     </div>
                     <ul>
                       {group.requests.map((r) => (
@@ -426,6 +461,9 @@ export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdate
                             <strong>{r.name}</strong>
                             <span className="muted small">{r.career}</span>
                             {r.message && <span className="small">“{r.message}”</span>}
+                            {r.status === "en_espera" && (
+                              <span className="badge badge-soft">En espera de un cupo</span>
+                            )}
                           </div>
                           <div className="request-actions">
                             <button
@@ -441,7 +479,8 @@ export default function Profile({ user, onOpen, onOpenDetail, onCreate, onUpdate
                               type="button"
                               className="btn btn-sm btn-primary"
                               aria-label={`Aceptar a ${r.name}`}
-                              disabled={answering !== null}
+                              // En espera: el grupo está completo y no se puede aceptar
+                              disabled={answering !== null || r.status === "en_espera"}
                               onClick={() => answer(r.id, acceptRequest)}
                             >
                               Aceptar

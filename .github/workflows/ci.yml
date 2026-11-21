@@ -104,6 +104,60 @@ jobs:
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
             }
 
+  e2e:
+    name: E2E (Playwright)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Los e2e corren contra el backend real: PRs a main usan su main, el resto usa dev
+      - name: Checkout del backend
+        uses: actions/checkout@v4
+        with:
+          repository: dela2910/Coestudia-backend
+          ref: ${{ (github.base_ref || github.ref_name) == 'main' && 'main' || 'dev' }}
+          path: backend
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Instalar el backend
+        run: |
+          python -m venv backend/.venv
+          backend/.venv/bin/pip install -r backend/requirements.txt
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Instalar Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Levanta backend (SQLite temporal + datos de ejemplo) y frontend, y corre los flujos
+      - name: Tests e2e
+        run: npm run test:e2e
+        env:
+          BACKEND_DIR: backend
+
+      - name: Guardar traza si falla
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-trazas
+          path: test-results/
+          retention-days: 7
+
   build:
     name: Build
     needs: test

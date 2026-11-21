@@ -4,7 +4,7 @@ import { searchGroups } from "../api/groups";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
 import { BackButton, EmptyState } from "../components/ui";
-import { blockLabel, dayLabel, modalityLabel } from "../data/mock";
+import { dayLabel, modalityLabel } from "../data/mock";
 
 export default function Results({ filters, onBack, onOpen, onCreate }) {
   // status: "loading" | "success" | "error"
@@ -42,7 +42,9 @@ export default function Results({ filters, onBack, onOpen, onCreate }) {
     filters.query && `“${filters.query}”`,
     filters.isOnline !== null && modalityLabel(filters.isOnline),
     ...filters.days.map(dayLabel),
-    ...filters.blocks.map(blockLabel),
+    filters.from && filters.to
+      ? `${filters.from}–${filters.to}`
+      : (filters.from && `Desde las ${filters.from}`) || (filters.to && `Hasta las ${filters.to}`),
   ].filter(Boolean);
 
   return (

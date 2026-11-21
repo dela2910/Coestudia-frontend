@@ -9,13 +9,14 @@ import GroupDetail from "./views/GroupDetail";
 import GroupRoom from "./views/GroupRoom";
 import Home from "./views/Home";
 import Login from "./views/Login";
+import ManageGroup from "./views/ManageGroup";
 import Profile from "./views/Profile";
 import ResetPassword from "./views/ResetPassword";
 import Results from "./views/Results";
 import VerifyEmail from "./views/VerifyEmail";
 import "./App.css";
 
-const EMPTY_FILTERS = { query: "", isOnline: null, days: [], blocks: [] };
+const EMPTY_FILTERS = { query: "", isOnline: null, days: [], from: "", to: "" };
 
 // Token del enlace de verificación que llega por correo: <frontend>/?verificar=<token>
 const verificationToken = () => new URLSearchParams(window.location.search).get("verificar");
@@ -40,7 +41,7 @@ function App() {
   const [loginDraft, setLoginDraft] = useState(null);
   // En desarrollo StrictMode corre los efectos dos veces; el token de verificación es de un solo uso
   const sessionChecked = useRef(false);
-  // view: "home" | "results" | "create" | "detail" | "room" | "profile"
+  // view: "home" | "results" | "create" | "detail" | "room" | "manage" | "profile"
   const [view, setView] = useState("home");
   const [previousView, setPreviousView] = useState("home");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
@@ -63,6 +64,12 @@ function App() {
   const openRoom = (group) => {
     setSelectedGroup(group);
     navigate("room");
+  };
+
+  // Administrar un grupo propio (editar, cerrar, expulsar y eliminar), solo para el creador.
+  const openManage = (group) => {
+    setSelectedGroup(group);
+    navigate("manage");
   };
 
   // Cambios del usuario (perfil o asignaturas) sin perder lo demás
@@ -204,6 +211,7 @@ function App() {
               setFilters(next);
               navigate("results");
             }}
+            onOpen={openGroup}
             onCreate={() => navigate("create")}
           />
         )}
@@ -229,8 +237,17 @@ function App() {
             key={selectedGroup.id}
             group={selectedGroup}
             user={user}
-            // Los archivos todavía no se guardan en el backend (B12): el espacio parte vacío
             onBack={() => navigate("profile")}
+            onLeft={() => navigate("profile")}
+            onManage={openManage}
+          />
+        )}
+        {view === "manage" && selectedGroup && (
+          <ManageGroup
+            key={selectedGroup.id}
+            group={selectedGroup}
+            onBack={() => navigate("profile")}
+            onDeleted={() => navigate("profile")}
           />
         )}
         {view === "profile" && (
@@ -238,6 +255,7 @@ function App() {
             user={user}
             onOpen={openRoom}
             onOpenDetail={openGroup}
+            onManage={openManage}
             onCreate={() => navigate("create")}
             onUpdateUser={updateUser}
             onLogout={signOut}
