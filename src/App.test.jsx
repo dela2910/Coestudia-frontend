@@ -91,6 +91,7 @@ const DEFAULT_ROUTES = {
   "GET /api/grupos/11/archivos": () => [200, []],
   "GET /api/grupos/11/foro": () => [200, []],
   "GET /api/grupos/11/asistente": () => [200, []],
+  "GET /api/asistente/limite": () => [200, { restantes: 40, maximo: 40 }],
 };
 
 // Mensaje del asistente tal como lo devuelve /api/grupos/{id}/asistente
@@ -104,6 +105,14 @@ const apiAssistantMessage = (id, contenido, fields = {}) => ({
   fuentes: [],
   ...fields,
 });
+
+// Respuesta por partes de POST /api/grupos/{id}/asistente: el texto en partes y la respuesta
+// guardada al final
+const assistantStream = (parts, saved) =>
+  [
+    ...parts.map((texto) => `event: texto\ndata: ${JSON.stringify({ texto })}\n\n`),
+    `event: listo\ndata: ${JSON.stringify(saved)}\n\n`,
+  ].join("");
 
 // Archivo tal como lo devuelve GET /api/grupos/{id}/archivos
 const apiFile = (id, nombre, fields = {}) => ({
@@ -123,7 +132,17 @@ const mockApi = (routes = {}) => {
   const fetchMock = vi.fn((url, options = {}) => {
     const key = `${options.method ?? "GET"} ${new URL(url).pathname}`;
     const [status, data] = handlers[key]?.(options, url) ?? [404, { detail: "No existe" }];
-    return Promise.resolve({ ok: status < 300, status, json: () => Promise.resolve(data) });
+    // Un texto es una respuesta por partes (text/event-stream), como la del asistente
+    const body =
+      typeof data === "string"
+        ? new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode(data));
+              controller.close();
+            },
+          })
+        : undefined;
+    return Promise.resolve({ ok: status < 300, status, body, json: () => Promise.resolve(data) });
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
@@ -1387,7 +1406,10 @@ describe("Espacio del grupo", () => {
             fuentes: [{ id: 9, nombre: "Apuntes clase 5.pdf" }],
           }),
         );
-        return [201, saved.at(-1)];
+        return [
+          200,
+          assistantStream(["Resumen: la clase 5 ", "trata de integrales por partes."], saved.at(-1)),
+        ];
       },
       "GET /api/grupos/11/asistente": () => [200, saved],
     });
@@ -1413,7 +1435,7 @@ describe("Espacio del grupo", () => {
     expect(screen.getByLabelText("El asistente está escribiendo")).toBeInTheDocument();
     expect(await screen.findByText(/la clase 5 trata de integrales/)).toBeInTheDocument();
     expect(screen.getByText("Fuentes:")).toBeInTheDocument();
-    // Después de responder se recarga la conversación: la pregunta aparece una sola vez
+    // La pregunta aparece una sola vez
     expect(screen.getAllByText("Resume los archivos", { selector: "p" })).toHaveLength(1);
     // La pregunta se manda al backend, que responde con el material del grupo
     const [, sent] = fetchMock.mock.calls.find(
@@ -1422,18 +1444,16 @@ describe("Espacio del grupo", () => {
     expect(JSON.parse(sent.body)).toEqual({ contenido: "Resume los archivos" });
   });
 
-  it("muestra la conversación del grupo y el creador puede borrarla", async () => {
+  it("muestra tu conversación con el asistente y la puedes borrar", async () => {
     const fetchMock = mockApi({
-      "GET /api/grupos/mios": () => [
-        200,
-        { creados: [apiMyGroup(apiGroups[0], { es_creador: true })], participo: [] },
-      ],
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
       "GET /api/grupos/11/asistente": () => [
         200,
         [
           apiAssistantMessage(1, "¿Qué es una serie?", {
             es_asistente: false,
-            autor: "Luis Castro",
+            autor: "Benjamín Soto",
+            es_mio: true,
           }),
           apiAssistantMessage(2, "Según los apuntes, es una suma infinita.", {
             fuentes: [{ id: 9, nombre: "Series.pdf" }],
@@ -1443,15 +1463,11 @@ describe("Espacio del grupo", () => {
       "DELETE /api/grupos/11/asistente": () => [204, null],
     });
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    await login();
-    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
-    fireEvent.click(await screen.findByRole("button", { name: /Cálculo II.*Abrir grupo/ }));
+    await openRoom();
     fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
 
     expect(await screen.findByText("Según los apuntes, es una suma infinita.")).toBeInTheDocument();
     expect(screen.getByText("¿Qué es una serie?")).toBeInTheDocument();
-    // La pregunta es de otro integrante: se muestra con su nombre
-    expect(screen.getByText("Luis Castro")).toBeInTheDocument();
     expect(screen.getByText("Series.pdf")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Borrar conversación" }));
@@ -1463,20 +1479,69 @@ describe("Espacio del grupo", () => {
     );
   });
 
-  it("solo el creador ve el botón para borrar la conversación", async () => {
-    mockApi({
+  it("comparte una respuesta del asistente en el foro del grupo", async () => {
+    const fetchMock = mockApi({
       "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
       "GET /api/grupos/11/asistente": () => [
         200,
-        [apiAssistantMessage(1, "Arma un control", { es_asistente: false, autor: "Ana Rojas" })],
+        [
+          apiAssistantMessage(1, "¿Qué es una serie?", { es_asistente: false, es_mio: true }),
+          apiAssistantMessage(2, "Una suma infinita.", {
+            fuentes: [{ id: 9, nombre: "Series.pdf", ubicacion: "pág. 4" }],
+            aviso: "El material del grupo es muy largo y no alcancé a leer: Libro.pdf.",
+          }),
+        ],
       ],
+      "POST /api/grupos/11/foro": () => [
+        201,
+        {
+          id: 5,
+          titulo: "Asistente: ¿Qué es una serie?",
+          autor: "Benjamín Soto",
+          es_mio: true,
+          contenido: "Una suma infinita.",
+          creado_en: "2026-11-12T15:00:00Z",
+          respuestas: [],
+        },
+      ],
+    });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openRoom();
+    fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
+
+    // El aviso va aparte de la respuesta, y la fuente dice la página que citó
+    expect(await screen.findByText(/no alcancé a leer: Libro.pdf/)).toBeInTheDocument();
+    expect(screen.getByText("Series.pdf, pág. 4")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Compartir en el foro" }));
+
+    expect(await screen.findByRole("button", { name: "Compartida en el foro" })).toBeDisabled();
+    const [, sent] = fetchMock.mock.calls.find(
+      ([url, o]) => url.endsWith("/api/grupos/11/foro") && o?.method === "POST",
+    );
+    expect(JSON.parse(sent.body)).toEqual({
+      titulo: "Asistente: ¿Qué es una serie?",
+      contenido: "Una suma infinita.\n\nFuentes: Series.pdf, pág. 4\n\n(Respuesta del asistente de estudio)",
+    });
+  });
+
+  it("muestra cuántas preguntas le quedan hoy", async () => {
+    let remaining = 12;
+    mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
+      "GET /api/asistente/limite": () => [200, { restantes: remaining, maximo: 40 }],
+      "POST /api/grupos/11/asistente": () => {
+        remaining = 0;
+        return [200, assistantStream(["Listo."], apiAssistantMessage(2, "Listo."))];
+      },
     });
     await openRoom();
     fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
 
-    expect(await screen.findByText("Arma un control")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Actualizar" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Borrar conversación" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/Te quedan 12 de 40 preguntas hoy/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Resume los archivos" }));
+
+    // Se actualiza después de cada pregunta
+    expect(await screen.findByText(/Llegaste al máximo de preguntas de hoy/)).toBeInTheDocument();
   });
 
   it("muestra el aviso del backend si no puede responder", async () => {
@@ -1497,7 +1562,7 @@ describe("Espacio del grupo", () => {
     expect(screen.getByLabelText("Pregunta al asistente")).toHaveValue("Hazme preguntas de práctica");
   });
 
-  it("avisa si no pudo cargar la conversación del grupo", async () => {
+  it("avisa si no pudo cargar la conversación con el asistente", async () => {
     mockApi({
       "GET /api/grupos/mios": () => [200, { creados: [], participo: [apiMyGroup(apiGroups[0])] }],
       "GET /api/grupos/11/asistente": () => [500, { detail: "Error interno" }],
@@ -1505,7 +1570,7 @@ describe("Espacio del grupo", () => {
     await openRoom();
     fireEvent.click(screen.getByRole("tab", { name: "Asistente" }));
 
-    expect(await screen.findByText(/No pudimos cargar la conversación del grupo/)).toBeInTheDocument();
+    expect(await screen.findByText(/No pudimos cargar tu conversación con el asistente/)).toBeInTheDocument();
   });
 });
 

@@ -11,7 +11,7 @@ import {
 import Icon from "./Icon";
 import { Avatar, EmptyState } from "./ui";
 
-// Foro del grupo (B16): lista de temas (ej. «Guía 2 – Ejercicio 3»), cada uno con su pregunta y
+// Foro del grupo (B14): lista de temas (ej. «Guía 2 – Ejercicio 3»), cada uno con su pregunta y
 // las respuestas debajo. Se carga al abrir y con «Actualizar»; no consulta solo cada pocos
 // segundos, para no mantener despierta la base de datos del plan gratuito.
 
@@ -30,7 +30,9 @@ function Post({ author, isMine, date, text, user }) {
   );
 }
 
-export default function GroupForum({ groupId, user }) {
+// refreshKey: al cambiar se recarga la lista de temas (por ejemplo, al compartir una respuesta del
+// asistente en el foro)
+export default function GroupForum({ groupId, user, refreshKey = 0 }) {
   // null mientras cargan
   const [topics, setTopics] = useState(null);
   // "list" | "new" | id del tema abierto
@@ -88,7 +90,7 @@ export default function GroupForum({ groupId, user }) {
     return () => {
       active = false;
     };
-  }, [groupId]);
+  }, [groupId, refreshKey]);
 
   const openTopic = (id) => {
     goTo(id);
