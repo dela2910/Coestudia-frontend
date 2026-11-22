@@ -27,7 +27,6 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
   const group = detail ?? summary;
   const isMember = detail?.isMember ?? false;
   const requested = detail?.pendingRequest ?? false;
-  const waiting = detail?.waiting ?? false;
 
   // call: requestToJoin o cancelRequest; ambas devuelven el detalle actualizado
   const act = async (call) => {
@@ -157,9 +156,7 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
             <div className="request-sent">
               <span className="request-sent-text">
                 <Icon name="check" size={18} strokeWidth={2.4} />
-                {waiting
-                  ? `Estás en la lista de espera: si se libera un cupo, ${group.owner ?? "el creador"} podrá aceptarte.`
-                  : `Solicitud enviada. Te avisaremos cuando ${group.owner ?? "el creador"} responda.`}
+                {`Solicitud enviada. Te avisaremos cuando ${group.owner ?? "el creador"} responda.`}
               </span>
               <button
                 type="button"
@@ -170,19 +167,10 @@ export default function GroupDetail({ group: summary, onEnter, onBack }) {
                 {busy ? "Cancelando…" : "Cancelar solicitud"}
               </button>
             </div>
-          ) : error || closed ? (
+          ) : error || closed || full ? (
+            // Un grupo completo no recibe solicitudes: si se libera un cupo, se puede volver a pedir
             <button type="button" className="btn btn-primary btn-lg btn-block" disabled>
-              {error ? "No disponible" : "Grupo cerrado"}
-            </button>
-          ) : full ? (
-            // Completo pero abierto: la solicitud queda en espera hasta que se libere un cupo
-            <button
-              type="button"
-              className="btn btn-secondary btn-lg btn-block"
-              disabled={!detail || busy}
-              onClick={() => act(requestToJoin)}
-            >
-              {busy ? "Enviando…" : "Unirme a la lista de espera"}
+              {error ? "No disponible" : closed ? "Grupo cerrado" : "Grupo completo"}
             </button>
           ) : (
             <button

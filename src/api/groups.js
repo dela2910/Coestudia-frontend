@@ -55,8 +55,6 @@ export const toGroupDetail = (grupo) => ({
   isMember: grupo.es_miembro,
   // El usuario ya pidió unirse y el creador aún no responde
   pendingRequest: grupo.solicitud_pendiente,
-  // La solicitud espera a que se libere un cupo (el grupo está lleno)
-  waiting: grupo.solicitud_en_espera,
   place: grupo.lugar,
   link: grupo.enlace,
 });
@@ -129,7 +127,7 @@ export const toMyGroup = (grupo) => ({
   link: grupo.enlace,
   requests: grupo.solicitudes.map((s) => ({
     id: s.id,
-    // "pendiente" | "en_espera" (el grupo está lleno: se puede aceptar cuando se libere un cupo)
+    // "pendiente": al llenarse el grupo, las pendientes se rechazan solas
     status: s.estado,
     name: s.usuario.nombre,
     career: s.usuario.carrera ?? "",
@@ -155,7 +153,8 @@ export const acceptRequest = async (requestId) =>
 export const rejectRequest = async (requestId) =>
   toMyGroup(await request(`/api/solicitudes/${requestId}/rechazar`, { method: "POST" }));
 
-// Solicitud enviada por el usuario. status: "pendiente" | "en_espera" | "aceptada" | "rechazada".
+// Solicitud enviada por el usuario. status: "pendiente" | "aceptada" | "rechazada" (la rechazó el
+// creador o el grupo se completó).
 // El grupo viene como en el buscador (sin lugar ni enlace).
 export const toMyRequest = (solicitud) => ({
   id: solicitud.id,
