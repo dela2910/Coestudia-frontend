@@ -56,6 +56,7 @@ const apiMyGroup = (group, fields = {}) => ({
   lugar: "Biblioteca central, sala 2",
   enlace: null,
   solicitudes: [],
+  invitaciones: [],
   ...fields,
 });
 
@@ -84,6 +85,7 @@ const DEFAULT_ROUTES = {
   ),
   "GET /api/grupos/mios": () => [200, { creados: [], participo: [] }],
   "GET /api/solicitudes/mias": () => [200, []],
+  "GET /api/invitaciones/mias": () => [200, []],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
   "GET /api/sugerencias/grupos": () => [200, []],
@@ -2243,5 +2245,153 @@ describe("Abandonar grupo", () => {
 
     expect(await screen.findByText(/para dejarlo, elimínalo/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Abandonar grupo" })).toBeEnabled();
+  });
+});
+
+describe("Invitaciones", () => {
+  // Detalle visto por el creador (id 1 = Benjamín, el usuario de la sesión)
+  const ownDetail = (fields = {}) =>
+    apiDetail(apiGroups[0], {
+      creador: "Benjamín Soto",
+      integrantes: [
+        { id: 1, nombre: "Benjamín Soto", carrera: "Ingeniería Civil Informática", es_creador: true },
+      ],
+      miembros: 1,
+      es_miembro: true,
+      solicitud_en_espera: false,
+      lugar: "Biblioteca central, sala 2",
+      ...fields,
+    });
+  const invited = { id: 31, usuario: { id: 9, nombre: "Sofía Pérez", carrera: "Medicina" } };
+  const mine = (fields = {}) => apiMyGroup(apiGroups[0], { es_creador: true, ...fields });
+
+  const openManage = async (routes = {}, group = mine()) => {
+    const fetchMock = mockApi({
+      "GET /api/grupos/mios": () => [200, { creados: [group], participo: [] }],
+      "GET /api/grupos/11": () => [200, ownDetail()],
+      ...routes,
+    });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Administrar Cálculo II" }));
+    await screen.findByText("Invitar al grupo");
+    return fetchMock;
+  };
+
+  const invite = (email) => {
+    fireEvent.change(screen.getByLabelText("Correo institucional"), { target: { value: email } });
+    fireEvent.click(screen.getByRole("button", { name: "Invitar" }));
+  };
+
+  it("el creador invita por correo y ve la invitación pendiente", async () => {
+    const fetchMock = await openManage({
+      "POST /api/grupos/11/invitaciones": () => [201, mine({ invitaciones: [invited] })],
+    });
+
+    invite("  sofia.perez@uc.cl ");
+
+    expect(
+      await screen.findByText("Le enviamos la invitación a sofia.perez@uc.cl."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Sofía Pérez")).toBeInTheDocument();
+    expect(screen.getByText("Invitación pendiente")).toBeInTheDocument();
+    expect(screen.getByLabelText("Correo institucional")).toHaveValue("");
+    const [, post] = fetchMock.mock.calls.find(([url, o]) =>
+      o?.method === "POST" && url.includes("/invitaciones"),
+    );
+    expect(JSON.parse(post.body)).toEqual({ email: "sofia.perez@uc.cl" });
+  });
+
+  it("muestra el error si no se pudo invitar y conserva el correo", async () => {
+    await openManage({
+      "POST /api/grupos/11/invitaciones": () => [
+        404,
+        { detail: "No hay una cuenta verificada de tu universidad con ese correo." },
+      ],
+    });
+
+    invite("nadie@uc.cl");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("No hay una cuenta verificada");
+    expect(screen.getByLabelText("Correo institucional")).toHaveValue("nadie@uc.cl");
+  });
+
+  it("cancela una invitación pendiente", async () => {
+    const fetchMock = await openManage(
+      { "DELETE /api/grupos/11/invitaciones/31": () => [200, mine()] },
+      mine({ invitaciones: [invited] }),
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Cancelar la invitación a Sofía Pérez" }),
+    );
+
+    await waitFor(() => expect(screen.queryByText("Sofía Pérez")).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/grupos/11/invitaciones/31"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+
+  it("no deja invitar si el grupo está completo", async () => {
+    await openManage({ "GET /api/grupos/11": () => [200, ownDetail({ miembros: 4 })] });
+
+    expect(screen.getByLabelText("Correo institucional")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Invitar" })).toBeDisabled();
+    expect(screen.getByText(/sube el cupo para invitar/)).toBeInTheDocument();
+  });
+
+  // Invitación tal como la devuelve GET /api/invitaciones/mias
+  const received = { id: 51, invitado_por: "Ana Rojas", creada_en: "2026-11-21T15:00:00Z", grupo: apiGroups[1] };
+
+  const openRequests = async (routes = {}) => {
+    const fetchMock = mockApi({ "GET /api/invitaciones/mias": () => [200, [received]], ...routes });
+    await login();
+    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
+    // La pestaña muestra cuántas invitaciones hay sin responder
+    fireEvent.click(await screen.findByRole("tab", { name: /^Mis solicitudess*1$/ }));
+    await screen.findByText(/Ana Rojas te invitó el 21 nov/);
+    return fetchMock;
+  };
+
+  it("el invitado acepta y el grupo pasa a Participo", async () => {
+    await openRequests({
+      "POST /api/invitaciones/51/aceptar": () => [200, apiMyGroup(apiGroups[1], { miembros: 3 })],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar la invitación a Física I" }));
+
+    expect(await screen.findByText(/Ya eres integrante del grupo de Física I/)).toBeInTheDocument();
+    expect(screen.queryByText(/te invitó/)).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Mis solicitudes" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Participo" }));
+    expect(await screen.findByRole("button", { name: /Física I.*Abrir grupo/ })).toBeInTheDocument();
+  });
+
+  it("el invitado rechaza la invitación", async () => {
+    const fetchMock = await openRequests({ "POST /api/invitaciones/51/rechazar": () => [204, null] });
+
+    fireEvent.click(screen.getByRole("button", { name: "Rechazar la invitación a Física I" }));
+
+    await waitFor(() => expect(screen.queryByText(/te invitó/)).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/invitaciones/51/rechazar"),
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("muestra el error si no pudo aceptar y la invitación sigue ahí", async () => {
+    await openRequests({
+      "POST /api/invitaciones/51/aceptar": () => [
+        409,
+        { detail: "El grupo ya no tiene cupos. Puedes aceptar la invitación cuando se libere uno." },
+      ],
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Aceptar la invitación a Física I" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("ya no tiene cupos");
+    expect(screen.getByText(/Ana Rojas te invitó/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aceptar la invitación a Física I" })).toBeEnabled();
   });
 });

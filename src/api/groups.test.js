@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  inviteToGroup,
   requestToJoin,
   searchGroups,
   toGroup,
   toGroupDetail,
   toMyGroup,
+  toMyInvitation,
   toMyRequest,
   updateGroup,
 } from "./groups";
@@ -121,6 +123,51 @@ describe("toMyGroup", () => {
     expect(mine.requests).toEqual([
       { id: 5, status: "en_espera", name: "Luis", career: "", message: "" },
     ]);
+  });
+
+  it("traduce las invitaciones pendientes y tolera que no vengan", () => {
+    const base = { ...grupo, es_creador: true, lugar: null, enlace: null, solicitudes: [] };
+    const mine = toMyGroup({
+      ...base,
+      invitaciones: [{ id: 3, usuario: { id: 9, nombre: "Sofía", carrera: null }, creada_en: "x" }],
+    });
+    expect(mine.invitations).toEqual([{ id: 3, name: "Sofía", career: "" }]);
+    expect(toMyGroup(base).invitations).toEqual([]);
+  });
+});
+
+describe("toMyInvitation", () => {
+  it("traduce la invitación y su grupo", () => {
+    expect(
+      toMyInvitation({ id: 4, invitado_por: "Ana", creada_en: "2026-11-21T15:00:00Z", grupo }),
+    ).toEqual({ id: 4, invitedBy: "Ana", sentAt: "2026-11-21T15:00:00Z", group: toGroup(grupo) });
+  });
+});
+
+describe("inviteToGroup", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("manda el correo sin espacios y devuelve el grupo con sus invitaciones", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: () =>
+        Promise.resolve({
+          ...grupo,
+          es_creador: true,
+          lugar: null,
+          enlace: null,
+          solicitudes: [],
+          invitaciones: [{ id: 3, usuario: { id: 9, nombre: "Sofía", carrera: "Medicina" } }],
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await inviteToGroup(7, "  sofia@uc.cl ");
+
+    expect(new URL(fetchMock.mock.calls[0][0]).pathname).toBe("/api/grupos/7/invitaciones");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ email: "sofia@uc.cl" });
+    expect(result.invitations).toEqual([{ id: 3, name: "Sofía", career: "Medicina" }]);
   });
 });
 

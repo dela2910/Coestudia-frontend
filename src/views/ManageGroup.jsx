@@ -1,12 +1,20 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
-import { deleteGroup, getGroup, removeMember, updateGroup } from "../api/groups";
+import {
+  cancelInvitation,
+  deleteGroup,
+  getGroup,
+  getMyGroups,
+  inviteToGroup,
+  removeMember,
+  updateGroup,
+} from "../api/groups";
 import Icon from "../components/Icon";
 import ScheduleEditor from "../components/ScheduleEditor";
 import { Avatar, BackButton } from "../components/ui";
 import { MODALITIES, scheduleError } from "../data/mock";
 
-// Administrar un grupo propio (B10): editar sus datos, cerrarlo o reabrirlo, expulsar
+// Administrar un grupo propio (B10): editar sus datos, cerrarlo o reabrirlo, invitar y expulsar
 // integrantes y eliminarlo. Solo lo ve el creador.
 
 const MAX_DESCRIPTION = 280;
@@ -171,6 +179,125 @@ function EditForm({ group, busy, onSave }) {
   );
 }
 
+// Invitar por correo institucional a un estudiante de la misma universidad. Si acepta, entra al
+// grupo sin pasar por una solicitud. Las invitaciones pendientes vienen con «mis grupos».
+function InviteSection({ group }) {
+  const [invitations, setInvitations] = useState(null);
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getMyGroups()
+      .then(({ created }) => {
+        if (active) setInvitations(created.find((g) => g.id === group.id)?.invitations ?? []);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setInvitations([]);
+        setError(errorMessage(err));
+      });
+    return () => {
+      active = false;
+    };
+  }, [group.id]);
+
+  const full = group.members >= group.capacity;
+  const canInvite = email.trim() && !full && !busy;
+
+  // call devuelve el grupo actualizado con sus invitaciones pendientes; run devuelve si funcionó
+  const run = async (call) => {
+    setError("");
+    setSent("");
+    setBusy(true);
+    try {
+      setInvitations((await call()).invitations);
+      return true;
+    } catch (err) {
+      setError(errorMessage(err));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const invite = async (e) => {
+    e.preventDefault();
+    if (!canInvite) return;
+    const address = email.trim();
+    if (await run(() => inviteToGroup(group.id, address))) {
+      setSent(`Le enviamos la invitación a ${address}.`);
+      setEmail("");
+    }
+  };
+
+  const cancel = (invitation) => run(() => cancelInvitation(group.id, invitation.id));
+
+  return (
+    <section className="card">
+      <h2 className="section-title">Invitar al grupo</h2>
+      <p className="muted small">
+        Invita a un compañero de tu universidad con su correo institucional. Le avisamos por correo
+        y, si acepta, entra al grupo sin enviar una solicitud.
+      </p>
+      <form className="invite-form" onSubmit={invite} aria-label="Invitar al grupo">
+        <div className="input-wrap">
+          <Icon name="mail" size={18} />
+          <input
+            type="email"
+            placeholder="nombre@uc.cl"
+            aria-label="Correo institucional"
+            value={email}
+            disabled={full}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+        <button type="submit" className="btn btn-primary" disabled={!canInvite}>
+          {busy ? "Invitando…" : "Invitar"}
+        </button>
+      </form>
+      {full && (
+        <p className="muted small">El grupo está completo: sube el cupo para invitar a alguien más.</p>
+      )}
+      {sent && (
+        <p className="notice" role="status">
+          <Icon name="check" size={16} /> {sent}
+        </p>
+      )}
+      {error && (
+        <p className="form-error" role="alert">
+          {error}
+        </p>
+      )}
+      {invitations?.length > 0 && (
+        <ul className="member-list">
+          {invitations.map((i) => (
+            <li key={i.id} className="member">
+              <Avatar name={i.name} />
+              <div>
+                <strong>{i.name}</strong>
+                <span className="muted small">{i.career}</span>
+              </div>
+              <span className="badge badge-soft">Invitación pendiente</span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                aria-label={`Cancelar la invitación a ${i.name}`}
+                disabled={busy}
+                onClick={() => cancel(i)}
+              >
+                Cancelar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 // onBack: vuelve a «mis grupos»; onDeleted: el grupo se eliminó
 export default function ManageGroup({ group: summary, onBack, onDeleted }) {
   const [group, setGroup] = useState(null);
@@ -309,6 +436,8 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
               ))}
             </ul>
           </section>
+
+          <InviteSection group={group} />
 
           {/* Sin key: el borrador se conserva aunque cambien los integrantes (ej. al expulsar) */}
           <EditForm group={group} busy={busy} onSave={save} />

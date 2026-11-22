@@ -7,6 +7,7 @@ const ANA = { email: 'ana.rojas@uc.cl', name: 'Ana Rojas' }
 const FERNANDA = 'fernanda.diaz@uc.cl'
 const LUIS = 'luis.castro@uc.cl'
 const BENJAMIN = 'benjamin.vera@uc.cl'
+const MATIAS = 'matias.soto@uc.cl'
 
 async function login(page, email) {
   await page.goto('/')
@@ -122,4 +123,27 @@ test('abandona un grupo en el que participa', async ({ page }) => {
   await goToMyGroups(page)
   await page.getByRole('tab', { name: 'Participo' }).click()
   await expect(page.locator('.group-card-main', { hasText: 'Ingeniería de Software' })).toHaveCount(0)
+})
+
+test('el creador invita a un compañero y este acepta', async ({ page, browser }) => {
+  // Benjamín creó el grupo de Álgebra (con Sofía) e invita a Matías por su correo
+  await login(page, BENJAMIN)
+  await goToMyGroups(page)
+  await page.getByRole('button', { name: 'Administrar Álgebra' }).click()
+  await page.getByLabel('Correo institucional').fill(MATIAS)
+  await page.getByRole('button', { name: 'Invitar', exact: true }).click()
+  await expect(page.getByText(`Le enviamos la invitación a ${MATIAS}.`)).toBeVisible()
+  await expect(page.getByText('Invitación pendiente')).toBeVisible()
+
+  // Matías la acepta desde «Mis solicitudes» y el grupo pasa a «Participo»
+  const guestContext = await browser.newContext()
+  const guest = await guestContext.newPage()
+  await login(guest, MATIAS)
+  await goToMyGroups(guest)
+  await guest.getByRole('tab', { name: /Mis solicitudes/ }).click()
+  await guest.getByRole('button', { name: 'Aceptar la invitación a Álgebra' }).click()
+  await expect(guest.getByText(/Ya eres integrante del grupo de Álgebra/)).toBeVisible()
+  await guest.getByRole('tab', { name: 'Participo' }).click()
+  await expect(guest.locator('.group-card-main', { hasText: 'Álgebra' })).toBeVisible()
+  await guestContext.close()
 })

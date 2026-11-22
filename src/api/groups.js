@@ -5,6 +5,8 @@ import { request } from "./client";
 // /api/grupos/{id}/solicitudes y /api/solicitudes/{id}. Mis solicitudes (B09):
 // GET /api/solicitudes/mias. Administrar (B10, solo el creador): PUT y DELETE /api/grupos/{id} y
 // DELETE /api/grupos/{id}/integrantes/{usuario}. Abandonar (B11): POST /api/grupos/{id}/abandonar.
+// Invitaciones: el creador invita con /api/grupos/{id}/invitaciones y el invitado responde con
+// GET /api/invitaciones/mias y /api/invitaciones/{id}.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -119,7 +121,7 @@ export const cancelRequest = async (id) =>
   toGroupDetail(await request(`/api/grupos/${id}/solicitudes`, { method: "DELETE" }));
 
 // Grupo de «mis grupos»: el usuario es integrante, así que trae lugar y enlace. Si lo creó,
-// también las solicitudes pendientes.
+// también las solicitudes y las invitaciones pendientes.
 export const toMyGroup = (grupo) => ({
   ...toGroup(grupo),
   isOwner: grupo.es_creador,
@@ -132,6 +134,12 @@ export const toMyGroup = (grupo) => ({
     name: s.usuario.nombre,
     career: s.usuario.carrera ?? "",
     message: s.mensaje ?? "",
+  })),
+  // Invitaciones que aún no responden (solo el creador las recibe)
+  invitations: (grupo.invitaciones ?? []).map((i) => ({
+    id: i.id,
+    name: i.usuario.nombre,
+    career: i.usuario.carrera ?? "",
   })),
 });
 
@@ -159,3 +167,37 @@ export const toMyRequest = (solicitud) => ({
 });
 
 export const getMyRequests = async () => (await request("/api/solicitudes/mias")).map(toMyRequest);
+
+// Invitar por correo institucional y cancelar una invitación (solo el creador). Devuelven el
+// grupo actualizado, con sus invitaciones pendientes.
+export const inviteToGroup = async (groupId, email) =>
+  toMyGroup(
+    await request(`/api/grupos/${groupId}/invitaciones`, {
+      method: "POST",
+      body: { email: email.trim() },
+    }),
+  );
+
+export const cancelInvitation = async (groupId, invitationId) =>
+  toMyGroup(
+    await request(`/api/grupos/${groupId}/invitaciones/${invitationId}`, { method: "DELETE" }),
+  );
+
+// Invitación pendiente que recibió el usuario. El grupo viene como en el buscador (sin lugar ni
+// enlace: los ve al aceptar).
+export const toMyInvitation = (invitacion) => ({
+  id: invitacion.id,
+  invitedBy: invitacion.invitado_por,
+  sentAt: invitacion.creada_en,
+  group: toGroup(invitacion.grupo),
+});
+
+export const getMyInvitations = async () =>
+  (await request("/api/invitaciones/mias")).map(toMyInvitation);
+
+// Aceptar devuelve el grupo al que entró el usuario, como en «mis grupos»
+export const acceptInvitation = async (invitationId) =>
+  toMyGroup(await request(`/api/invitaciones/${invitationId}/aceptar`, { method: "POST" }));
+
+export const rejectInvitation = (invitationId) =>
+  request(`/api/invitaciones/${invitationId}/rechazar`, { method: "POST" });
