@@ -41,7 +41,7 @@ Además, el CI analiza:
 
 Prueban los flujos principales contra la app real: iniciar sesión, buscar un grupo y pedir
 ingreso (y que el creador acepte), crear un grupo, publicar y responder en el foro, administrar un
-grupo (editar, expulsar y cerrar) y abandonar un grupo. Necesitan el repositorio del backend al lado (`../Coestudia-backend`) con su `.venv`
+grupo (editar, expulsar y cerrar), invitar a un compañero (y que acepte) y abandonar un grupo. Necesitan el repositorio del backend al lado (`../Coestudia-backend`) con su `.venv`
 instalado.
 
 ```bash
@@ -63,7 +63,7 @@ src/
 ├── api/
 │   ├── client.js      # request() base, token de sesión y URL del backend
 │   ├── auth.js        # registro, verificación del correo, login y sesión
-│   ├── groups.js      # buscar, crear, solicitudes, administrar y abandonar grupos
+│   ├── groups.js      # buscar, crear, solicitudes, invitaciones, administrar y abandonar grupos
 │   ├── profile.js     # editar el perfil y «mis asignaturas»
 │   ├── files.js       # archivos del grupo: subir, listar, descargar y eliminar
 │   ├── forum.js       # foro del grupo: temas y respuestas

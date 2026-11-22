@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
-import { acceptRequest, getMyGroups, getMyRequests, rejectRequest } from "../api/groups";
+import {
+  acceptInvitation,
+  acceptRequest,
+  getMyGroups,
+  getMyInvitations,
+  getMyRequests,
+  rejectInvitation,
+  rejectRequest,
+} from "../api/groups";
 import { addMySubject, getSubjectCatalog, removeMySubject, updateProfile } from "../api/profile";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
@@ -98,6 +106,52 @@ function MyRequests({ onOpenDetail }) {
           />
         );
       })}
+    </div>
+  );
+}
+
+// Invitaciones que recibió el usuario de creadores de otros grupos. answering: id de la que se está
+// respondiendo; onAnswer(invitación, aceptar)
+function ReceivedInvitations({ invitations, answering, onAnswer, onOpenDetail }) {
+  if (invitations.length === 0) return null;
+  return (
+    <div className="stack">
+      <h3 className="section-title">Invitaciones</h3>
+      {invitations.map((i) => (
+        <GroupCard
+          key={i.id}
+          group={i.group}
+          onOpen={() => onOpenDetail(i.group)}
+          footer={
+            <div className="requests">
+              <div className="requests-head">
+                <Icon name="mail" size={18} />
+                {i.invitedBy} te invitó el {sentDate(i.sentAt)}
+              </div>
+              <div className="request-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  aria-label={`Rechazar la invitación a ${i.group.subject}`}
+                  disabled={answering !== null}
+                  onClick={() => onAnswer(i, false)}
+                >
+                  Rechazar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  aria-label={`Aceptar la invitación a ${i.group.subject}`}
+                  disabled={answering !== null}
+                  onClick={() => onAnswer(i, true)}
+                >
+                  Aceptar
+                </button>
+              </div>
+            </div>
+          }
+        />
+      ))}
     </div>
   );
 }
@@ -210,11 +264,22 @@ export default function Profile({
   // Solicitud que se está aceptando o rechazando
   const [answering, setAnswering] = useState(null);
   const [requestError, setRequestError] = useState("");
+  // Invitaciones recibidas: se cargan al abrir el perfil para mostrar cuántas hay en la pestaña
+  const [invitations, setInvitations] = useState([]);
+  const [answeringInvitation, setAnsweringInvitation] = useState(null);
+  const [invitationError, setInvitationError] = useState("");
+  const [joined, setJoined] = useState(null);
 
   useEffect(() => {
     getMyGroups()
       .then(setMyGroups)
       .catch((err) => setGroupsError(errorMessage(err)));
+  }, []);
+
+  useEffect(() => {
+    getMyInvitations()
+      .then(setInvitations)
+      .catch((err) => setInvitationError(errorMessage(err)));
   }, []);
 
   useEffect(() => {
@@ -286,6 +351,27 @@ export default function Profile({
         .catch(() => {});
     } finally {
       setAnswering(null);
+    }
+  };
+
+  // Al aceptar, el grupo pasa a «Participo»
+  const answerInvitation = async (invitation, accept) => {
+    setInvitationError("");
+    setJoined(null);
+    setAnsweringInvitation(invitation.id);
+    try {
+      if (accept) {
+        const group = await acceptInvitation(invitation.id);
+        setMyGroups((prev) => prev && { ...prev, participating: [...prev.participating, group] });
+        setJoined(group);
+      } else {
+        await rejectInvitation(invitation.id);
+      }
+      setInvitations((prev) => prev.filter((i) => i.id !== invitation.id));
+    } catch (err) {
+      setInvitationError(errorMessage(err));
+    } finally {
+      setAnsweringInvitation(null);
     }
   };
 
@@ -412,6 +498,7 @@ export default function Profile({
             onClick={() => setTab("requests")}
           >
             Mis solicitudes
+            {invitations.length > 0 && <span className="tab-count">{invitations.length}</span>}
           </button>
         </div>
 
@@ -422,7 +509,26 @@ export default function Profile({
         )}
 
         {tab === "requests" ? (
-          <MyRequests onOpenDetail={onOpenDetail} />
+          <div className="stack">
+            {invitationError && (
+              <p className="form-error" role="alert">
+                {invitationError}
+              </p>
+            )}
+            {joined && (
+              <p className="notice" role="status">
+                <Icon name="check" size={16} /> Ya eres integrante del grupo de {joined.subject}: lo
+                encuentras en «Participo».
+              </p>
+            )}
+            <ReceivedInvitations
+              invitations={invitations}
+              answering={answeringInvitation}
+              onAnswer={answerInvitation}
+              onOpenDetail={onOpenDetail}
+            />
+            <MyRequests onOpenDetail={onOpenDetail} />
+          </div>
         ) : groupsError ? (
           <p className="form-error" role="alert">
             {groupsError}

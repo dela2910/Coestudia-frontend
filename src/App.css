@@ -1491,6 +1491,18 @@ textarea::placeholder {
   flex-direction: column;
 }
 
+/* Invitar al grupo: correo y botón en la misma fila */
+.invite-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.invite-form .input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+
 .detail-actions {
   display: flex;
   flex-direction: column;
@@ -2284,6 +2296,10 @@ textarea::placeholder {
 
   .request-actions .btn {
     flex: 1;
+  }
+
+  .invite-form {
+    flex-direction: column;
   }
 
   .room-head {
