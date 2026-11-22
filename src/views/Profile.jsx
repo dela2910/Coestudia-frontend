@@ -24,28 +24,18 @@ const byCode = (a, b) => a.code.localeCompare(b.code);
 // Estado de «mis solicitudes»: etiqueta, color y qué significa para quien la envió
 const REQUEST_STATUS = {
   pendiente: { label: "Pendiente", badge: "badge-soft", note: "Esperando respuesta del creador." },
-  en_espera: {
-    label: "En espera",
-    badge: "badge-soft",
-    note: "El grupo está completo: si se libera un cupo, el creador podrá aceptarte.",
-  },
   aceptada: { label: "Aceptada", badge: "badge-open", note: "Ya eres integrante: entra al grupo." },
   rechazada: {
     label: "Rechazada",
     badge: "badge-closed",
-    note: "El creador no aceptó tu solicitud.",
+    note: "El creador no aceptó tu solicitud o el grupo se completó antes de que respondiera.",
   },
 };
 
-// Resumen de las solicitudes de un grupo propio, ej. "1 solicitud pendiente · 2 en espera"
+// Resumen de las solicitudes de un grupo propio, ej. "2 solicitudes pendientes"
 const requestsSummary = (requests) => {
   if (requests.length === 0) return "Sin solicitudes pendientes";
-  const pending = requests.filter((r) => r.status === "pendiente").length;
-  const waiting = requests.length - pending;
-  const parts = [];
-  if (pending) parts.push(`${pending} ${pending === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`);
-  if (waiting) parts.push(`${waiting} en espera`);
-  return parts.join(" · ");
+  return `${requests.length} ${requests.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`;
 };
 
 // Fecha y hora con zona del backend, mostrada en la hora local, ej. "29 oct"
@@ -291,12 +281,7 @@ export default function Profile({
   }, []);
 
   const subjects = user.subjects;
-  // Solo las que se pueden responder ya; las en espera no cuentan hasta que se libere un cupo
-  const pendingCount =
-    myGroups?.created.reduce(
-      (total, g) => total + g.requests.filter((r) => r.status === "pendiente").length,
-      0,
-    ) ?? 0;
+  const pendingCount = myGroups?.created.reduce((total, g) => total + g.requests.length, 0) ?? 0;
 
   const match = newCode.trim() ? findSubject(catalog, newCode) : null;
   const needsName = Boolean(newCode.trim()) && !match;
@@ -567,9 +552,6 @@ export default function Profile({
                             <strong>{r.name}</strong>
                             <span className="muted small">{r.career}</span>
                             {r.message && <span className="small">“{r.message}”</span>}
-                            {r.status === "en_espera" && (
-                              <span className="badge badge-soft">En espera de un cupo</span>
-                            )}
                           </div>
                           <div className="request-actions">
                             <button
@@ -585,8 +567,7 @@ export default function Profile({
                               type="button"
                               className="btn btn-sm btn-primary"
                               aria-label={`Aceptar a ${r.name}`}
-                              // En espera: el grupo está completo y no se puede aceptar
-                              disabled={answering !== null || r.status === "en_espera"}
+                              disabled={answering !== null}
                               onClick={() => answer(r.id, acceptRequest)}
                             >
                               Aceptar

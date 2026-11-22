@@ -163,8 +163,8 @@ function EditForm({ group, busy, onSave }) {
           </button>
         </div>
         <span className="field-hint">
-          No puede ser menor que los {group.members} integrantes actuales. Si lo subes, las
-          solicitudes en espera vuelven a quedar pendientes.
+          No puede ser menor que los {group.members} integrantes actuales. Si lo dejas igual, el
+          grupo queda completo y se rechazan las solicitudes pendientes.
         </span>
       </div>
       {saved && (
@@ -402,7 +402,7 @@ export default function ManageGroup({ group: summary, onBack, onDeleted }) {
             </div>
             <p className="muted small">
               {group.isOpen
-                ? "Cualquiera puede pedir unirse. Si el grupo está completo, las solicitudes quedan en espera hasta que se libere un cupo."
+                ? "Cualquiera puede pedir unirse mientras haya cupo. Al completarse, las solicitudes pendientes se rechazan solas y se les avisa por correo."
                 : "Nadie puede pedir unirse. Las solicitudes que ya llegaron siguen esperando hasta que lo reabras."}
             </p>
           </section>

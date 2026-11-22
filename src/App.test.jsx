@@ -1898,16 +1898,12 @@ describe("Buscador", () => {
   });
 });
 
-describe("Lista de espera", () => {
-  it("permite unirse a la lista de espera de un grupo completo", async () => {
+describe("Grupo completo", () => {
+  it("no deja pedir unirse a un grupo completo", async () => {
     const full = apiGroup(11, "MAT1620", "Cálculo II", { miembros: 4 });
     mockApi({
       "GET /api/grupos": () => [200, [full]],
       "GET /api/grupos/11": () => [200, apiDetail(full)],
-      "POST /api/grupos/11/solicitudes": () => [
-        201,
-        apiDetail(full, { solicitud_pendiente: true, solicitud_en_espera: true }),
-      ],
     });
     await login();
     fireEvent.change(screen.getByLabelText("Buscar asignatura"), { target: { value: "calculo" } });
@@ -1918,49 +1914,21 @@ describe("Lista de espera", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: /Cálculo II/ }));
 
-    const join = await screen.findByRole("button", { name: "Unirme a la lista de espera" });
-    await waitFor(() => expect(join).toBeEnabled());
-    fireEvent.click(join);
-
-    expect(await screen.findByText(/Estás en la lista de espera/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancelar solicitud" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Grupo completo" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Solicitar ingreso" })).not.toBeInTheDocument();
   });
 
-  it("muestra las solicitudes en espera sin permitir aceptarlas", async () => {
-    const mine = apiMyGroup(apiGroups[0], {
-      es_creador: true,
-      miembros: 4,
-      solicitudes: [
-        {
-          id: 41,
-          usuario: { id: 41, nombre: "Pedro Rojas", carrera: null },
-          estado: "en_espera",
-          mensaje: null,
-          creada_en: "2026-10-29T12:00:00Z",
-        },
-      ],
-    });
-    mockApi({ "GET /api/grupos/mios": () => [200, { creados: [mine], participo: [] }] });
-    await login();
-    fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
-
-    expect(await screen.findByText("1 en espera")).toBeInTheDocument();
-    expect(screen.getByText("En espera de un cupo")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Aceptar a Pedro Rojas" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Rechazar a Pedro Rojas" })).toBeEnabled();
-  });
-
-  it("muestra el estado en espera en Mis solicitudes", async () => {
+  it("explica en Mis solicitudes que una rechazada puede ser porque el grupo se completó", async () => {
     mockApi({
       "GET /api/solicitudes/mias": () => [
         200,
         [
           {
             id: 5,
-            estado: "en_espera",
+            estado: "rechazada",
             mensaje: null,
             creada_en: "2026-10-29T12:00:00Z",
-            respondida_en: null,
+            respondida_en: "2026-10-29T18:00:00Z",
             grupo: apiGroups[0],
           },
         ],
@@ -1970,8 +1938,8 @@ describe("Lista de espera", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mis grupos" }));
     fireEvent.click(screen.getByRole("tab", { name: "Mis solicitudes" }));
 
-    expect(await screen.findByText("En espera")).toBeInTheDocument();
-    expect(screen.getByText(/si se libera un cupo/)).toBeInTheDocument();
+    expect(await screen.findByText("Rechazada")).toBeInTheDocument();
+    expect(screen.getByText(/el grupo se completó antes de que respondiera/)).toBeInTheDocument();
   });
 });
 
@@ -1985,7 +1953,6 @@ describe("Administrar grupo", () => {
         { id: 8, nombre: "Luis Castro", carrera: "Ingeniería Comercial", es_creador: false },
       ],
       es_miembro: true,
-      solicitud_en_espera: false,
       lugar: "Biblioteca central, sala 2",
       ...fields,
     });
@@ -2258,7 +2225,6 @@ describe("Invitaciones", () => {
       ],
       miembros: 1,
       es_miembro: true,
-      solicitud_en_espera: false,
       lugar: "Biblioteca central, sala 2",
       ...fields,
     });

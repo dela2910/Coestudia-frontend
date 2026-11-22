@@ -113,7 +113,7 @@ describe("toMyGroup", () => {
         {
           id: 5,
           usuario: { id: 9, nombre: "Luis", carrera: null },
-          estado: "en_espera",
+          estado: "pendiente",
           mensaje: null,
           creada_en: "2026-10-29T12:00:00Z",
         },
@@ -121,7 +121,7 @@ describe("toMyGroup", () => {
     });
     expect(mine).toMatchObject({ isOwner: true, place: null, link: "https://meet.google.com/abc" });
     expect(mine.requests).toEqual([
-      { id: 5, status: "en_espera", name: "Luis", career: "", message: "" },
+      { id: 5, status: "pendiente", name: "Luis", career: "", message: "" },
     ]);
   });
 
@@ -240,7 +240,6 @@ describe("updateGroup", () => {
           integrantes: [],
           es_miembro: true,
           solicitud_pendiente: false,
-          solicitud_en_espera: false,
           lugar: "Biblioteca",
           enlace: null,
         }),
