@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { errorMessage } from "../api/client";
-import { acceptRequest, getMyGroups, getMyRequests, rejectRequest } from "../api/groups";
+import {
+  acceptInvitation,
+  acceptRequest,
+  getMyGroups,
+  getMyInvitations,
+  getMyRequests,
+  rejectInvitation,
+  rejectRequest,
+} from "../api/groups";
 import { addMySubject, getSubjectCatalog, removeMySubject, updateProfile } from "../api/profile";
 import GroupCard from "../components/GroupCard";
 import Icon from "../components/Icon";
@@ -16,28 +24,18 @@ const byCode = (a, b) => a.code.localeCompare(b.code);
 // Estado de «mis solicitudes»: etiqueta, color y qué significa para quien la envió
 const REQUEST_STATUS = {
   pendiente: { label: "Pendiente", badge: "badge-soft", note: "Esperando respuesta del creador." },
-  en_espera: {
-    label: "En espera",
-    badge: "badge-soft",
-    note: "El grupo está completo: si se libera un cupo, el creador podrá aceptarte.",
-  },
   aceptada: { label: "Aceptada", badge: "badge-open", note: "Ya eres integrante: entra al grupo." },
   rechazada: {
     label: "Rechazada",
     badge: "badge-closed",
-    note: "El creador no aceptó tu solicitud.",
+    note: "El creador no aceptó tu solicitud o el grupo se completó antes de que respondiera.",
   },
 };
 
-// Resumen de las solicitudes de un grupo propio, ej. "1 solicitud pendiente · 2 en espera"
+// Resumen de las solicitudes de un grupo propio, ej. "2 solicitudes pendientes"
 const requestsSummary = (requests) => {
   if (requests.length === 0) return "Sin solicitudes pendientes";
-  const pending = requests.filter((r) => r.status === "pendiente").length;
-  const waiting = requests.length - pending;
-  const parts = [];
-  if (pending) parts.push(`${pending} ${pending === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`);
-  if (waiting) parts.push(`${waiting} en espera`);
-  return parts.join(" · ");
+  return `${requests.length} ${requests.length === 1 ? "solicitud pendiente" : "solicitudes pendientes"}`;
 };
 
 // Fecha y hora con zona del backend, mostrada en la hora local, ej. "29 oct"
@@ -98,6 +96,52 @@ function MyRequests({ onOpenDetail }) {
           />
         );
       })}
+    </div>
+  );
+}
+
+// Invitaciones que recibió el usuario de creadores de otros grupos. answering: id de la que se está
+// respondiendo; onAnswer(invitación, aceptar)
+function ReceivedInvitations({ invitations, answering, onAnswer, onOpenDetail }) {
+  if (invitations.length === 0) return null;
+  return (
+    <div className="stack">
+      <h3 className="section-title">Invitaciones</h3>
+      {invitations.map((i) => (
+        <GroupCard
+          key={i.id}
+          group={i.group}
+          onOpen={() => onOpenDetail(i.group)}
+          footer={
+            <div className="requests">
+              <div className="requests-head">
+                <Icon name="mail" size={18} />
+                {i.invitedBy} te invitó el {sentDate(i.sentAt)}
+              </div>
+              <div className="request-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  aria-label={`Rechazar la invitación a ${i.group.subject}`}
+                  disabled={answering !== null}
+                  onClick={() => onAnswer(i, false)}
+                >
+                  Rechazar
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  aria-label={`Aceptar la invitación a ${i.group.subject}`}
+                  disabled={answering !== null}
+                  onClick={() => onAnswer(i, true)}
+                >
+                  Aceptar
+                </button>
+              </div>
+            </div>
+          }
+        />
+      ))}
     </div>
   );
 }
@@ -210,11 +254,22 @@ export default function Profile({
   // Solicitud que se está aceptando o rechazando
   const [answering, setAnswering] = useState(null);
   const [requestError, setRequestError] = useState("");
+  // Invitaciones recibidas: se cargan al abrir el perfil para mostrar cuántas hay en la pestaña
+  const [invitations, setInvitations] = useState([]);
+  const [answeringInvitation, setAnsweringInvitation] = useState(null);
+  const [invitationError, setInvitationError] = useState("");
+  const [joined, setJoined] = useState(null);
 
   useEffect(() => {
     getMyGroups()
       .then(setMyGroups)
       .catch((err) => setGroupsError(errorMessage(err)));
+  }, []);
+
+  useEffect(() => {
+    getMyInvitations()
+      .then(setInvitations)
+      .catch((err) => setInvitationError(errorMessage(err)));
   }, []);
 
   useEffect(() => {
@@ -226,12 +281,7 @@ export default function Profile({
   }, []);
 
   const subjects = user.subjects;
-  // Solo las que se pueden responder ya; las en espera no cuentan hasta que se libere un cupo
-  const pendingCount =
-    myGroups?.created.reduce(
-      (total, g) => total + g.requests.filter((r) => r.status === "pendiente").length,
-      0,
-    ) ?? 0;
+  const pendingCount = myGroups?.created.reduce((total, g) => total + g.requests.length, 0) ?? 0;
 
   const match = newCode.trim() ? findSubject(catalog, newCode) : null;
   const needsName = Boolean(newCode.trim()) && !match;
@@ -286,6 +336,27 @@ export default function Profile({
         .catch(() => {});
     } finally {
       setAnswering(null);
+    }
+  };
+
+  // Al aceptar, el grupo pasa a «Participo»
+  const answerInvitation = async (invitation, accept) => {
+    setInvitationError("");
+    setJoined(null);
+    setAnsweringInvitation(invitation.id);
+    try {
+      if (accept) {
+        const group = await acceptInvitation(invitation.id);
+        setMyGroups((prev) => prev && { ...prev, participating: [...prev.participating, group] });
+        setJoined(group);
+      } else {
+        await rejectInvitation(invitation.id);
+      }
+      setInvitations((prev) => prev.filter((i) => i.id !== invitation.id));
+    } catch (err) {
+      setInvitationError(errorMessage(err));
+    } finally {
+      setAnsweringInvitation(null);
     }
   };
 
@@ -412,6 +483,7 @@ export default function Profile({
             onClick={() => setTab("requests")}
           >
             Mis solicitudes
+            {invitations.length > 0 && <span className="tab-count">{invitations.length}</span>}
           </button>
         </div>
 
@@ -422,7 +494,26 @@ export default function Profile({
         )}
 
         {tab === "requests" ? (
-          <MyRequests onOpenDetail={onOpenDetail} />
+          <div className="stack">
+            {invitationError && (
+              <p className="form-error" role="alert">
+                {invitationError}
+              </p>
+            )}
+            {joined && (
+              <p className="notice" role="status">
+                <Icon name="check" size={16} /> Ya eres integrante del grupo de {joined.subject}: lo
+                encuentras en «Participo».
+              </p>
+            )}
+            <ReceivedInvitations
+              invitations={invitations}
+              answering={answeringInvitation}
+              onAnswer={answerInvitation}
+              onOpenDetail={onOpenDetail}
+            />
+            <MyRequests onOpenDetail={onOpenDetail} />
+          </div>
         ) : groupsError ? (
           <p className="form-error" role="alert">
             {groupsError}
@@ -461,9 +552,6 @@ export default function Profile({
                             <strong>{r.name}</strong>
                             <span className="muted small">{r.career}</span>
                             {r.message && <span className="small">“{r.message}”</span>}
-                            {r.status === "en_espera" && (
-                              <span className="badge badge-soft">En espera de un cupo</span>
-                            )}
                           </div>
                           <div className="request-actions">
                             <button
@@ -479,8 +567,7 @@ export default function Profile({
                               type="button"
                               className="btn btn-sm btn-primary"
                               aria-label={`Aceptar a ${r.name}`}
-                              // En espera: el grupo está completo y no se puede aceptar
-                              disabled={answering !== null || r.status === "en_espera"}
+                              disabled={answering !== null}
                               onClick={() => answer(r.id, acceptRequest)}
                             >
                               Aceptar

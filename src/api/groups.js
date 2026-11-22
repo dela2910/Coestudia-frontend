@@ -5,6 +5,8 @@ import { request } from "./client";
 // /api/grupos/{id}/solicitudes y /api/solicitudes/{id}. Mis solicitudes (B09):
 // GET /api/solicitudes/mias. Administrar (B10, solo el creador): PUT y DELETE /api/grupos/{id} y
 // DELETE /api/grupos/{id}/integrantes/{usuario}. Abandonar (B11): POST /api/grupos/{id}/abandonar.
+// Invitaciones: el creador invita con /api/grupos/{id}/invitaciones y el invitado responde con
+// GET /api/invitaciones/mias y /api/invitaciones/{id}.
 
 // El backend usa los nombres del modelo de datos; las vistas usan los de src/data/mock.js.
 export const toGroup = (grupo) => ({
@@ -53,8 +55,6 @@ export const toGroupDetail = (grupo) => ({
   isMember: grupo.es_miembro,
   // El usuario ya pidió unirse y el creador aún no responde
   pendingRequest: grupo.solicitud_pendiente,
-  // La solicitud espera a que se libere un cupo (el grupo está lleno)
-  waiting: grupo.solicitud_en_espera,
   place: grupo.lugar,
   link: grupo.enlace,
 });
@@ -119,7 +119,7 @@ export const cancelRequest = async (id) =>
   toGroupDetail(await request(`/api/grupos/${id}/solicitudes`, { method: "DELETE" }));
 
 // Grupo de «mis grupos»: el usuario es integrante, así que trae lugar y enlace. Si lo creó,
-// también las solicitudes pendientes.
+// también las solicitudes y las invitaciones pendientes.
 export const toMyGroup = (grupo) => ({
   ...toGroup(grupo),
   isOwner: grupo.es_creador,
@@ -127,11 +127,17 @@ export const toMyGroup = (grupo) => ({
   link: grupo.enlace,
   requests: grupo.solicitudes.map((s) => ({
     id: s.id,
-    // "pendiente" | "en_espera" (el grupo está lleno: se puede aceptar cuando se libere un cupo)
+    // "pendiente": al llenarse el grupo, las pendientes se rechazan solas
     status: s.estado,
     name: s.usuario.nombre,
     career: s.usuario.carrera ?? "",
     message: s.mensaje ?? "",
+  })),
+  // Invitaciones que aún no responden (solo el creador las recibe)
+  invitations: (grupo.invitaciones ?? []).map((i) => ({
+    id: i.id,
+    name: i.usuario.nombre,
+    career: i.usuario.carrera ?? "",
   })),
 });
 
@@ -147,7 +153,8 @@ export const acceptRequest = async (requestId) =>
 export const rejectRequest = async (requestId) =>
   toMyGroup(await request(`/api/solicitudes/${requestId}/rechazar`, { method: "POST" }));
 
-// Solicitud enviada por el usuario. status: "pendiente" | "en_espera" | "aceptada" | "rechazada".
+// Solicitud enviada por el usuario. status: "pendiente" | "aceptada" | "rechazada" (la rechazó el
+// creador o el grupo se completó).
 // El grupo viene como en el buscador (sin lugar ni enlace).
 export const toMyRequest = (solicitud) => ({
   id: solicitud.id,
@@ -159,3 +166,37 @@ export const toMyRequest = (solicitud) => ({
 });
 
 export const getMyRequests = async () => (await request("/api/solicitudes/mias")).map(toMyRequest);
+
+// Invitar por correo institucional y cancelar una invitación (solo el creador). Devuelven el
+// grupo actualizado, con sus invitaciones pendientes.
+export const inviteToGroup = async (groupId, email) =>
+  toMyGroup(
+    await request(`/api/grupos/${groupId}/invitaciones`, {
+      method: "POST",
+      body: { email: email.trim() },
+    }),
+  );
+
+export const cancelInvitation = async (groupId, invitationId) =>
+  toMyGroup(
+    await request(`/api/grupos/${groupId}/invitaciones/${invitationId}`, { method: "DELETE" }),
+  );
+
+// Invitación pendiente que recibió el usuario. El grupo viene como en el buscador (sin lugar ni
+// enlace: los ve al aceptar).
+export const toMyInvitation = (invitacion) => ({
+  id: invitacion.id,
+  invitedBy: invitacion.invitado_por,
+  sentAt: invitacion.creada_en,
+  group: toGroup(invitacion.grupo),
+});
+
+export const getMyInvitations = async () =>
+  (await request("/api/invitaciones/mias")).map(toMyInvitation);
+
+// Aceptar devuelve el grupo al que entró el usuario, como en «mis grupos»
+export const acceptInvitation = async (invitationId) =>
+  toMyGroup(await request(`/api/invitaciones/${invitationId}/aceptar`, { method: "POST" }));
+
+export const rejectInvitation = (invitationId) =>
+  request(`/api/invitaciones/${invitationId}/rechazar`, { method: "POST" });
