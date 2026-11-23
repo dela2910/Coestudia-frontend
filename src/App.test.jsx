@@ -86,6 +86,8 @@ const DEFAULT_ROUTES = {
   "GET /api/grupos/mios": () => [200, { creados: [], participo: [] }],
   "GET /api/solicitudes/mias": () => [200, []],
   "GET /api/invitaciones/mias": () => [200, []],
+  "GET /api/notificaciones": () => [200, { sin_leer: 0, notificaciones: [] }],
+  "POST /api/notificaciones/vistas": () => [204, null],
   "GET /api/perfil/asignaturas": () => [200, []],
   "GET /api/asignaturas": () => [200, []],
   "GET /api/sugerencias/grupos": () => [200, []],
@@ -347,6 +349,38 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: /Física I/ }));
     expect(await screen.findByText("Luis Castro")).toBeInTheDocument();
     expect(screen.getByText("Grupo de estudio · FIS1513")).toBeInTheDocument();
+  });
+
+  it("una notificación de invitación abre «Mis solicitudes»", async () => {
+    mockApi({
+      "GET /api/notificaciones": () => [
+        200,
+        {
+          sin_leer: 1,
+          notificaciones: [
+            {
+              id: "invitacion_recibida-5",
+              tipo: "invitacion_recibida",
+              fecha: "2026-11-22T15:00:00Z",
+              grupo_id: 12,
+              asignatura: "FIS1513 Física I",
+              persona: "Ana Rojas",
+              aceptada: null,
+              nueva: true,
+            },
+          ],
+        },
+      ],
+    });
+    await login();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Notificaciones (1 nueva)" }));
+    fireEvent.click(screen.getByText("Ana Rojas te invitó a su grupo de FIS1513 Física I"));
+
+    expect(await screen.findByRole("tab", { name: "Mis solicitudes" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
   it("sin solicitudes enviadas invita a buscar grupos", async () => {
