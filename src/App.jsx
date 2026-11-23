@@ -14,6 +14,7 @@ import Profile from "./views/Profile";
 import ResetPassword from "./views/ResetPassword";
 import Results from "./views/Results";
 import VerifyEmail from "./views/VerifyEmail";
+import { setVitalsView } from "./vitals";
 import "./App.css";
 
 const EMPTY_FILTERS = { query: "", isOnline: null, days: [], from: "", to: "" };
@@ -125,6 +126,11 @@ function App() {
         });
     }
   }, []);
+
+  // Vista actual para las Core Web Vitals (la app no cambia de URL entre vistas)
+  useEffect(() => {
+    setVitalsView(authStep === "done" ? view : authStep);
+  }, [authStep, view]);
 
   // Si una llamada responde 401 a mitad de uso (la sesión venció), se vuelve al login con el aviso
   useEffect(() => {
