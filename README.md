@@ -67,6 +67,7 @@ src/
 │   ├── profile.js     # editar el perfil y «mis asignaturas»
 │   ├── files.js       # archivos del grupo: subir, listar, descargar y eliminar
 │   ├── forum.js       # foro del grupo: temas y respuestas
+│   ├── notifications.js # campana: notificaciones, textos y a qué pestaña llevan
 │   └── assistant.js   # asistente IA (simulado)
 ├── components/        # piezas reutilizables (Navbar, GroupCard, ui.jsx…)
 ├── data/
@@ -74,6 +75,7 @@ src/
 ├── views/             # una vista por pantalla (Login, Home, Results, CreateGroup…)
 ├── test/
 │   └── setup.js       # configuración de Vitest + jest-dom
+├── vitals.js          # Core Web Vitals (web-vitals) → backend
 ├── App.jsx            # navegación entre vistas
 ├── App.test.jsx
 ├── App.css
@@ -109,6 +111,16 @@ enlace aparece en la consola del backend.
 Los datos de ejemplo ya tienen la forma del modelo: `isOnline` (es_online), `schedule` con
 `{ day, isMorning }` (horario_grupo: día 0 = lunes … 5 = sábado), `place` o `link`, y
 `validUntil` (vigente_hasta).
+
+## Core Web Vitals
+
+`src/vitals.js` mide LCP, INP y CLS (más FCP y TTFB) con la librería `web-vitals` en el navegador de
+cada usuario y las manda en un solo `sendBeacon` a `POST /api/metricas-web` cuando la página se
+oculta. Cada medición lleva la vista en que estaba la app (`home`, `login`…), que `App` actualiza.
+
+Solo se activa en el build de producción. Para probarlo en local, levanta el backend y corre
+`VITE_WEB_VITALS=true npm run dev`; las métricas llegan al cambiar de pestaña o cerrar la página.
+El resumen (p75 por métrica) está en `GET /api/metricas-web/resumen` del backend.
 
 ## Variables de entorno
 
