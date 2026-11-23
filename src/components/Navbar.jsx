@@ -1,4 +1,5 @@
 import Icon from "./Icon";
+import Notifications from "./Notifications";
 import { Avatar } from "./ui";
 
 const LINKS = [
@@ -7,7 +8,7 @@ const LINKS = [
   { view: "profile", label: "Mis grupos", icon: "users" },
 ];
 
-export default function Navbar({ current, onNavigate, userName }) {
+export default function Navbar({ current, onNavigate, onOpenNotification, userName }) {
   return (
     <header className="navbar">
       <div className="navbar-inner">
@@ -31,6 +32,7 @@ export default function Navbar({ current, onNavigate, userName }) {
             </button>
           ))}
         </nav>
+        <Notifications onOpen={onOpenNotification} refreshKey={current} />
         <button
           type="button"
           className="nav-avatar"

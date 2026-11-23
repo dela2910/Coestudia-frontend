@@ -233,6 +233,7 @@ function ProfileForm({ user, onSaved, onCancel }) {
 // enviaste una solicitud; onManage: administrar un grupo creado por el usuario
 export default function Profile({
   user,
+  initialTab = "created",
   onOpen,
   onOpenDetail,
   onManage,
@@ -240,7 +241,7 @@ export default function Profile({
   onUpdateUser,
   onLogout,
 }) {
-  const [tab, setTab] = useState("created"); // "created" | "participating" | "requests"
+  const [tab, setTab] = useState(initialTab); // "created" | "participating" | "requests"
   const [editing, setEditing] = useState(false);
   // Asignaturas que ya existen en la universidad; crece cuando el usuario agrega una sigla nueva.
   const [catalog, setCatalog] = useState([]);

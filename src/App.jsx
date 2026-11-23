@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getMe, logout, verifyEmail } from "./api/auth";
 import { ApiError, errorMessage, getToken, onSessionExpired } from "./api/client";
+import { notificationTab } from "./api/notifications";
 import { getMySubjects } from "./api/profile";
 import Navbar from "./components/Navbar";
 import CreateGroup from "./views/CreateGroup";
@@ -48,11 +49,21 @@ function App() {
   // Grupo abierto en el detalle o en su espacio. El detalle se abre desde el buscador; el
   // espacio, desde el detalle o desde "Mis grupos"
   const [selectedGroup, setSelectedGroup] = useState(null);
+  // Pestaña con que se abre «Mis grupos» (una notificación lleva directo a la que corresponde).
+  // profileKey vuelve a montar el perfil si ya estaba abierto, para que tome la pestaña nueva
+  const [profileTab, setProfileTab] = useState("created");
+  const [profileKey, setProfileKey] = useState(0);
 
   const navigate = (next) => {
     setPreviousView(view);
     setView(next);
     window.scrollTo?.({ top: 0 });
+  };
+
+  const openNotification = (notification) => {
+    setProfileTab(notificationTab(notification));
+    setProfileKey((key) => key + 1);
+    navigate("profile");
   };
 
   const openGroup = (group) => {
@@ -201,7 +212,15 @@ function App() {
 
   return (
     <div className="app">
-      <Navbar current={view} onNavigate={navigate} userName={user.name} />
+      <Navbar
+        current={view}
+        onNavigate={(next) => {
+          if (next === "profile") setProfileTab("created");
+          navigate(next);
+        }}
+        onOpenNotification={openNotification}
+        userName={user.name}
+      />
       <main className="main">
         {view === "home" && (
           <Home
@@ -252,6 +271,8 @@ function App() {
         )}
         {view === "profile" && (
           <Profile
+            key={profileKey}
+            initialTab={profileTab}
             user={user}
             onOpen={openRoom}
             onOpenDetail={openGroup}
